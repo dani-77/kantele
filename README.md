@@ -17,7 +17,7 @@ setting at a time.
 | [pwm](https://github.com/dani-77/pwm) | `~/.config/pwm/config.toml` | supported |
 | [wasp](https://github.com/dani-77/wasp) | `~/.config/wasp/config.lua` | supported |
 | [spitfire](https://github.com/dani-77/spitfire) | `~/.config/spitfire/config.lua` | supported |
-| [wmd77](https://github.com/d77void/wmd77) | `~/.config/wmd77/config.toml` | planned: needs wmd77 to read a config file (today its settings are compiled in) |
+| [wmd77](https://github.com/d77void/wmd77) | `~/.config/wmd77/config.toml` | supported (wmd77 0.5.0+) |
 
 ### pwm
 
@@ -39,6 +39,14 @@ which pwm 0.6.5 and newer handle as an in-place restart (your windows stay
 open). Older pwm releases don't handle `SIGHUP`, and its default action would
 end the session, so Kantele checks first and, on those, asks you to press
 Super+Shift+R instead.
+
+### wmd77
+
+wmd77 0.5.0 reads the same `config.toml` format as pwm, so it gets the same
+pages and the same in-place editing. Only **Bar** differs: wmd77 keeps its
+own dwm-style bar, and the page turns it on or off, sets its height, font
+size and position, and how much room to keep free at the top for an external
+bar such as polybar. Save and apply sends `SIGHUP`, like pwm.
 
 ### wasp
 
@@ -89,7 +97,7 @@ Pages: **Windows** (borders, gaps, snap, focus follows mouse, output scale),
 
 ```
 kantele                 # configure the running WM
-kantele --wm wasp       # pick one explicitly
+kantele --wm wmd77      # pick one explicitly
 kantele --config FILE   # edit another file (e.g. for testing)
 ```
 

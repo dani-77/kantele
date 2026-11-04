@@ -1,4 +1,7 @@
-"""pwm backend: reads, validates and writes ~/.config/pwm/config.toml.
+"""pwm and wmd77 backend: reads, validates and writes their config.toml.
+
+wmd77 reads the same format as pwm (same themes, apps, rules and actions);
+only its [bar] section and a few defaults differ, captured by a Flavor.
 
 pwm's config is plain declarative TOML that pwm overlays onto its built-in
 defaults, so every setting here is optional: an empty value means "remove
@@ -121,9 +124,38 @@ KEY_RE = re.compile(r"^(?:[MSCA]-)*[A-Za-z0-9_]+$")
 COLOR_RE = re.compile(r"^(?:#|0x)?(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 
 
-def config_path() -> Path:
+# wmd77's [bar]: key -> (kind, default shown in the GUI)
+WMD77_BAR = {
+    "enable": ("bool", True),
+    "height": ("int", 20),
+    "font_size": ("int", 12),
+    "position": ("choice", "top"),
+    "reserve_top": ("int", 18),
+}
+WMD77_BAR_LIMITS = {"height": (8, 200), "font_size": (4, 72), "reserve_top": (0, 500)}
+
+
+@dataclass(frozen=True)
+class Flavor:
+    """What differs between pwm and wmd77."""
+
+    name: str
+    example: Path
+    apps: dict[str, str]
+    window_rules: list[tuple[str, str]]
+    bar: str            # "widgets" (pwm) or "wmd77"
+    reload_since: str   # first release that reloads on SIGHUP
+
+
+PWM = Flavor("pwm", EXAMPLE, DEFAULT_APPS, DEFAULT_WINDOW_RULES, "widgets", "0.6.5")
+WMD77 = Flavor("wmd77", Path("/usr/share/wmd77/config.toml.example"),
+               {**DEFAULT_APPS, "startup_script": "/etc/xdg/wmd77/startup.sh"},
+               [], "wmd77", "0.5.0")
+
+
+def config_path(flavor: Flavor = PWM) -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return Path(base) / "pwm" / "config.toml"
+    return Path(base) / flavor.name / "config.toml"
 
 
 @dataclass
@@ -150,18 +182,21 @@ class Settings:
     window_rules: list[tuple[str, str]] = field(default_factory=list)
     float_rules: list[FloatRule] = field(default_factory=list)
     bar_widgets: list[str] | None = None
+    # wmd77's [bar] keys that are set (see WMD77_BAR); missing = wmd77 default
+    bar: dict[str, object] = field(default_factory=dict)
     binds: list[Bind] = field(default_factory=list)
 
 
 class Config:
-    def __init__(self, path: Path | None = None):
-        self.path = path or config_path()
+    def __init__(self, path: Path | None = None, flavor: Flavor = PWM):
+        self.flavor = flavor
+        self.path = path or config_path(flavor)
         self.existed = self.path.exists()
         if self.existed:
             self.doc = tomlkit.parse(self.path.read_text())
-        elif EXAMPLE.exists():
-            # start from the commented example, like pwm's own docs suggest
-            self.doc = tomlkit.parse(EXAMPLE.read_text())
+        elif flavor.example.exists():
+            # start from the commented example, like the WM's own docs suggest
+            self.doc = tomlkit.parse(flavor.example.read_text())
         else:
             self.doc = tomlkit.document()
 
@@ -180,8 +215,12 @@ class Config:
         s.float_rules = [FloatRule(str(r.get("class", "")), r.get("width_ratio"),
                                    r.get("height_ratio"))
                          for r in d.get("float_rule", [])]
-        widgets = d.get("bar", {}).get("widgets")
-        s.bar_widgets = [str(w) for w in widgets] if widgets is not None else None
+        bar = d.get("bar", {})
+        if self.flavor.bar == "widgets":
+            widgets = bar.get("widgets")
+            s.bar_widgets = [str(w) for w in widgets] if widgets is not None else None
+        else:
+            s.bar = {k: _plain(bar[k]) for k in WMD77_BAR if k in bar}
         s.binds = [Bind(str(b.get("key", "")), str(b.get("action", "")),
                         str(b["arg"]) if "arg" in b else None)
                    for b in d.get("bind", [])]
@@ -192,6 +231,9 @@ class Config:
         """Writes `s` into the TOML document, keeping comments where the
         structure allows (scalar keys are edited in place)."""
         d = self.doc
+        # Tables this save had to create; dropped again below if they stay
+        # empty, so a no-op save doesn't add bare [apps]/[bar] headers.
+        missing = [n for n in ("theme", "apps", "bar") if not isinstance(d.get(n), Table)]
 
         theme = _table(d, "theme")
         _set(theme, "active", s.theme)
@@ -217,7 +259,15 @@ class Config:
             for r in s.float_rules])
 
         bar = _table(d, "bar")
-        _set(bar, "widgets", s.bar_widgets)
+        if self.flavor.bar == "widgets":
+            _set(bar, "widgets", s.bar_widgets)
+        else:
+            for k in WMD77_BAR:
+                _set(bar, k, s.bar.get(k))
+
+        for n in missing:
+            if not d[n]:
+                del d[n]
 
         _set_aot(d, "bind", [
             {k: v for k, v in (("key", b.key), ("action", b.action), ("arg", b.arg))
@@ -241,7 +291,7 @@ class Config:
         return backup
 
 
-def validate(s: Settings) -> list[str]:
+def validate(s: Settings, flavor: Flavor = PWM) -> list[str]:
     """Problems pwm would reject or silently ignore, as readable messages."""
     errs: list[str] = []
     known_themes = set(BUILTIN_THEMES) | set(s.palettes)
@@ -267,6 +317,13 @@ def validate(s: Settings) -> list[str]:
         for label, v in (("width", r.width), ("height", r.height)):
             if v is not None and not 0.0 < v <= 1.0:
                 errs.append(f"Floating rule '{r.cls}': {label} must be between 0 and 1.")
+    for k, v in s.bar.items():
+        if k == "position" and v not in ("top", "bottom"):
+            errs.append("Bar position must be top or bottom.")
+        elif k in WMD77_BAR_LIMITS:
+            lo, hi = WMD77_BAR_LIMITS[k]
+            if not isinstance(v, int) or not lo <= v <= hi:
+                errs.append(f"Bar {k.replace('_', ' ')} must be between {lo} and {hi}.")
     if s.bar_widgets is not None:
         for w in s.bar_widgets:
             if w not in BAR_WIDGETS:
@@ -294,14 +351,15 @@ def validate(s: Settings) -> list[str]:
 
 
 # ── applying to the running pwm ──────────────────────────────────────────
-def reload_running() -> str:
-    """Asks the running pwm to re-read its config. Returns a status message."""
-    r = send_reload(NAME)
+def reload_running(flavor: Flavor = PWM) -> str:
+    """Asks the running WM to re-read its config. Returns a status message."""
+    n = flavor.name
+    r = send_reload(n)
     if r == "absent":
-        return "Saved. pwm isn't running; it will use the new settings next time it starts."
+        return f"Saved. {n} isn't running; it will use the new settings next time it starts."
     if r == "unsupported":
-        return ("Saved. This pwm can't reload on request (needs pwm 0.6.5 or newer): "
-                "press Super+Shift+R to apply.")
+        return (f"Saved. This {n} can't reload on request (needs {n} {flavor.reload_since} "
+                "or newer): press Super+Shift+R to apply.")
     return "Saved and applied."
 
 

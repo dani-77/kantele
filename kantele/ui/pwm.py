@@ -1,10 +1,10 @@
-"""Settings page for pwm."""
+"""Settings pages for pwm and wmd77 (same config.toml format)."""
 
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFontComboBox,
+    QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFontComboBox, QSpinBox,
     QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
     QTableWidget, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout,
@@ -175,20 +175,21 @@ class AppsTab(QWidget):
     LABELS = {"terminal": "Terminal", "launcher": "Launcher",
               "locker": "Screen locker", "startup_script": "Startup script"}
 
-    def __init__(self):
+    def __init__(self, flavor: pwm.Flavor):
         super().__init__()
         lay = QVBoxLayout(self)
         form = QFormLayout()
         self.edits: dict[str, QLineEdit] = {}
-        for k, default in pwm.DEFAULT_APPS.items():
+        for k, default in flavor.apps.items():
             e = QLineEdit()
             e.setPlaceholderText(f"default: {default}")
             self.edits[k] = e
             form.addRow(self.LABELS[k] + ":", e)
         lay.addLayout(form)
         lay.addWidget(_note(
-            "Leave a field empty to use pwm's default. The startup script "
-            "receives the active theme name as its first argument."))
+            f"Leave a field empty to use {flavor.name}'s default."
+            + (" The startup script receives the active theme name as its first argument."
+               if flavor.bar == "widgets" else "")))
         lay.addStretch()
 
     def load(self, s: pwm.Settings) -> None:
@@ -200,13 +201,17 @@ class AppsTab(QWidget):
 
 
 class WindowRulesTab(QWidget):
-    def __init__(self):
+    def __init__(self, flavor: pwm.Flavor):
         super().__init__()
         lay = QVBoxLayout(self)
-        lay.addWidget(_note(
-            "Which window class opens on which workspace. Your rules are laid over "
-            "pwm's built-in ones by class: " + ", ".join(
-                f"{c}→{w}" for c, w in pwm.DEFAULT_WINDOW_RULES) + "."))
+        if flavor.window_rules:
+            note = ("Which window class opens on which workspace. Your rules are laid over "
+                    f"{flavor.name}'s built-in ones by class: " + ", ".join(
+                        f"{c}→{w}" for c, w in flavor.window_rules) + ".")
+        else:
+            note = (f"Which window class opens on which workspace. {flavor.name} has no "
+                    "built-in rules.")
+        lay.addWidget(_note(note))
         self.et = EditableTable(["Window class", "Workspace"], self._add)
         lay.addWidget(self.et)
 
@@ -314,12 +319,62 @@ class BarTab(QWidget):
         s.bar_widgets = None if on == pwm.BAR_WIDGETS and not self._explicit else on
 
 
-class KeysTab(QWidget):
+class Wmd77BarTab(QWidget):
+    """wmd77's own [bar]: on/off, size, position, and room for an external bar."""
+
     def __init__(self):
         super().__init__()
         lay = QVBoxLayout(self)
+        form = QFormLayout()
+        self.enable = QComboBox()
+        self.enable.addItems(["default (on)", "on", "off"])
+        form.addRow("Built-in bar:", self.enable)
+        self.position = QComboBox()
+        self.position.addItems(["default (top)", "top", "bottom"])
+        form.addRow("Position:", self.position)
+        self.spins: dict[str, QSpinBox] = {}
+        labels = {"height": "Height (px)", "font_size": "Font size",
+                  "reserve_top": "Room kept free at the top (px)"}
+        for k, (lo, hi) in pwm.WMD77_BAR_LIMITS.items():
+            sp = QSpinBox()
+            sp.setRange(lo - 1, hi)       # lo - 1 = "default", i.e. leave the key out
+            sp.setSpecialValueText("default")
+            self.spins[k] = sp
+            form.addRow(labels[k] + ":", sp)
+        lay.addLayout(form)
         lay.addWidget(_note(
-            "Your keybindings. Each one replaces pwm's default for the same key; "
+            "Turn the built-in bar off to run an external one (polybar, lemonbar, ...) "
+            "from your startup script, and keep room for it at the top. The room "
+            "defaults to 18 px with the built-in bar at the top, 0 otherwise. The bar "
+            "text comes from /etc/xdg/wmd77/bar.sh."))
+        lay.addStretch()
+
+    def load(self, s: pwm.Settings) -> None:
+        b = s.bar
+        self.enable.setCurrentIndex(0 if "enable" not in b else (1 if b["enable"] else 2))
+        self.position.setCurrentIndex({"top": 1, "bottom": 2}.get(b.get("position"), 0))
+        for k, sp in self.spins.items():
+            v = b.get(k)
+            sp.setValue(v if isinstance(v, int) else sp.minimum())
+
+    def store(self, s: pwm.Settings) -> None:
+        b: dict[str, object] = {}
+        if self.enable.currentIndex():
+            b["enable"] = self.enable.currentIndex() == 1
+        if self.position.currentIndex():
+            b["position"] = self.position.currentText()
+        for k, sp in self.spins.items():
+            if sp.value() != sp.minimum():
+                b[k] = sp.value()
+        s.bar = b
+
+
+class KeysTab(QWidget):
+    def __init__(self, flavor: pwm.Flavor):
+        super().__init__()
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            f"Your keybindings. Each one replaces {flavor.name}'s default for the same key; "
             "every other default stays. Keys use penrose notation: M = Super, "
             "S = Shift, C = Ctrl, A = Alt (e.g. M-S-Return)."))
         self.et = EditableTable(["Key", "Action", "Argument"], self._add)
@@ -329,7 +384,7 @@ class KeysTab(QWidget):
         self.et.table.setColumnWidth(0, 210)
         lay.addWidget(self.et, 1)
 
-        box = QGroupBox("pwm's built-in keys")
+        box = QGroupBox(f"{flavor.name}'s built-in keys")
         bl = QVBoxLayout(box)
         self.defaults = QTableWidget(len(pwm.DEFAULT_BINDS), 3)
         self.defaults.setHorizontalHeaderLabels(["Key", "Action", "Argument"])
@@ -416,20 +471,23 @@ class KeysTab(QWidget):
 
 
 class PwmPage(QWidget):
-    title = "pwm"
+    flavor = pwm.PWM
 
     def __init__(self, path=None):
         super().__init__()
-        self.cfg = pwm.Config(path)
+        fl = self.flavor
+        self.title = fl.name
+        self.cfg = pwm.Config(path, fl)
         lay = QVBoxLayout(self)
-        head = QLabel(f"<b>pwm</b> — {self.cfg.path}"
+        head = QLabel(f"<b>{fl.name}</b> — {self.cfg.path}"
                       + ("" if self.cfg.existed else " <i>(will be created)</i>"))
         lay.addWidget(head)
         self.tabs = QTabWidget()
         self.parts = [
-            ("Theme", ThemeTab()), ("Applications", AppsTab()),
-            ("Workspaces", WindowRulesTab()), ("Floating", FloatRulesTab()),
-            ("Bar", BarTab()), ("Keybindings", KeysTab()),
+            ("Theme", ThemeTab()), ("Applications", AppsTab(fl)),
+            ("Workspaces", WindowRulesTab(fl)), ("Floating", FloatRulesTab()),
+            ("Bar", BarTab() if fl.bar == "widgets" else Wmd77BarTab()),
+            ("Keybindings", KeysTab(fl)),
         ]
         for name, w in self.parts:
             self.tabs.addTab(w, name)
@@ -437,7 +495,7 @@ class PwmPage(QWidget):
         self.reload()
 
     def reload(self) -> None:
-        self.cfg = pwm.Config(self.cfg.path)
+        self.cfg = pwm.Config(self.cfg.path, self.flavor)
         s = self.cfg.read()
         for _, w in self.parts:
             w.load(s)
@@ -452,14 +510,18 @@ class PwmPage(QWidget):
         """Validates and writes. Returns a status message, or None if the
         user has to fix something first."""
         s = self.collect()
-        errs = pwm.validate(s)
+        errs = pwm.validate(s, self.flavor)
         if errs:
             QMessageBox.warning(self, "Please fix these first",
                                 "\n".join(f"• {e}" for e in errs))
             return None
         self.cfg.apply(s)
         backup = self.cfg.save()
-        msg = pwm.reload_running() if apply else "Saved."
+        msg = pwm.reload_running(self.flavor) if apply else "Saved."
         if backup:
             msg += f" (Your original file was kept as {backup.name}.)"
         return msg
+
+
+class Wmd77Page(PwmPage):
+    flavor = pwm.WMD77
