@@ -18,19 +18,20 @@ Deleting kantele.lua drops every Kantele setting; config.lua stays yours.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import shlex
 import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import send_reload
+from .luautil import (
+    HEADER, LUA, LuaError, Spec, add_loader, coerce, get_path, lua_literal,
+    overrides_tree, run, write_checked,
+)
 
 NAME = "wasp"
-LUA = "lua5.4"
 EXAMPLE = Path("/usr/share/wasp/config.lua")
 OVERRIDES_NAME = "kantele.lua"
 
@@ -50,19 +51,6 @@ DIRECTIONS = ("left", "right", "up", "down")
 
 COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 KEYSYM_RE = re.compile(r"^[A-Za-z0-9_]+$")
-
-
-@dataclass(frozen=True)
-class Spec:
-    """One scalar setting: where it lives in the `wasp` table and how to edit it."""
-
-    path: tuple[str, ...]
-    label: str
-    kind: str  # "int" | "float" | "bool" | "color" | "str" | "argv" | "choice"
-    default: object
-    lo: float = 0
-    hi: float = 0
-    choices: tuple[str, ...] = ()
 
 
 # Defaults mirror wasp's examples/config.lua (wasp 0.10.x), used when the
@@ -155,6 +143,11 @@ ACTIONS: dict[str, tuple[str, str | None]] = {
     "quit": ("Quit wasp", None),
     "none": ("Disabled (key goes to the window)", None),
 }
+HINTS = {"cmd": "command, e.g. foot -e fish", "dir": "1 or -1",
+         "mondir": "left / right / up / down", "delta": "e.g. 0.05 or -0.05",
+         "tag": "1-9, all, or empty for previous",
+         "layout": " / ".join(LAYOUTS) + " (empty cycles)", "vt": "1-12",
+         "moveresize": "dx=40 dy=0 dw=0 dh=0", "name": "scratchpad slot name"}
 _MOVERESIZE = ("dx", "dy", "dw", "dh")
 _ARG_FIELDS = {"cmd": ("cmd",), "dir": ("dir",), "mondir": ("dir",), "delta": ("delta",),
                "tag": ("tag",), "layout": ("layout",), "vt": ("vt",),
@@ -304,32 +297,6 @@ class Settings:
         return {p: v for p, v in self.values.items() if v != self.base.get(p)}
 
 
-def _get(t: dict, path: tuple[str, ...]):
-    for k in path:
-        if not isinstance(t, dict) or k not in t:
-            return None
-        t = t[k]
-    return t
-
-
-def _coerce(spec: Spec, v):
-    """A value read from Lua, made to fit the spec (None -> default)."""
-    if v is None:
-        return spec.default
-    try:
-        if spec.kind == "int":
-            return int(v)
-        if spec.kind == "float":
-            return float(v)
-        if spec.kind == "bool":
-            return bool(v)
-        if spec.kind == "argv":
-            return [str(x) for x in v] if isinstance(v, list) else spec.default
-        return str(v)
-    except (TypeError, ValueError):
-        return spec.default
-
-
 # ── Lua helpers ──────────────────────────────────────────────────────────
 # Runs config.lua (or kantele.lua) and prints a JSON dump. arg[1] = file to
 # run, arg[2] = "skip" to make the loader line ignore kantele.lua, arg[3] =
@@ -344,103 +311,14 @@ if skip then
   end
 end
 wasp = { keys = {} }
-local function enc(v, seen)
-  local t = type(v)
-  if t == "nil" then return "null"
-  elseif t == "boolean" then return tostring(v)
-  elseif t == "number" then
-    if v ~= v or v == math.huge or v == -math.huge then return "null" end
-    if math.type(v) == "integer" then return tostring(v) end
-    return string.format("%.14g", v)
-  elseif t == "string" then
-    return '"' .. v:gsub('[%c"\\]', function(c)
-      return string.format("\\u%04x", c:byte())
-    end) .. '"'
-  elseif t == "table" then
-    if seen[v] then return "null" end
-    seen[v] = true
-    local n = #v
-    local out = {}
-    local is_array = n > 0
-    for k in pairs(v) do
-      if math.type(k) ~= "integer" or k < 1 or k > n then is_array = false break end
-    end
-    if is_array then
-      for i = 1, n do out[#out + 1] = enc(v[i], seen) end
-      seen[v] = nil
-      return "[" .. table.concat(out, ",") .. "]"
-    end
-    for k, x in pairs(v) do
-      if type(k) == "string" and type(x) ~= "function" and type(x) ~= "userdata" then
-        out[#out + 1] = enc(k, seen) .. ":" .. enc(x, seen)
-      end
-    end
-    seen[v] = nil
-    return "{" .. table.concat(out, ",") .. "}"
-  end
-  return "null"
-end
 local ret = dofile(file)
-io.write(enc(what == "return" and ret or wasp, {}))
+io.write(enc(what == "return" and ret or wasp))
 '''
 
 
-class LuaError(RuntimeError):
-    pass
-
-
 def _run_lua(file: Path, skip: bool, what: str = "wasp"):
-    if not shutil.which(LUA):
-        raise LuaError(f"{LUA} not found; Kantele needs it to read wasp's config.")
-    p = subprocess.run([LUA, "-", str(file), "skip" if skip else "", what],
-                       input=_DUMP_LUA, capture_output=True, text=True, timeout=10,
-                       cwd=file.parent)
-    if p.returncode != 0:
-        raise LuaError(p.stderr.strip() or f"{LUA} exited with {p.returncode}")
-    return json.loads(p.stdout or "null")
+    return run(_DUMP_LUA, file, "skip" if skip else "", what)
 
-
-def lua_literal(v, indent: str = "") -> str:
-    """Python value -> Lua source. Dicts keep their order, so the output is
-    stable and a no-op save rewrites kantele.lua byte for byte."""
-    if v is None:
-        return "nil"
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, int):
-        return str(v)
-    if isinstance(v, float):
-        return repr(v)
-    if isinstance(v, str):
-        out = v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-        out = re.sub(r"[\x00-\x1f\x7f]", lambda m: "\\%03d" % ord(m.group()), out)
-        return f'"{out}"'
-    if isinstance(v, list):
-        if all(not isinstance(x, (dict, list)) for x in v):
-            return "{ " + ", ".join(lua_literal(x) for x in v) + " }" if v else "{}"
-        inner = indent + "  "
-        return "{\n" + "".join(f"{inner}{lua_literal(x, inner)},\n" for x in v) + indent + "}"
-    if isinstance(v, dict):
-        if not v:
-            return "{}"
-        inner = indent + "  "
-        items = []
-        for k, x in v.items():
-            key = k if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k) else f"[{lua_literal(k)}]"
-            items.append(f"{key} = {lua_literal(x, inner)}")
-        one = "{ " + ", ".join(items) + " }"
-        if len(one) <= 80 and "\n" not in one:
-            return one
-        return "{\n" + "".join(f"{inner}{i},\n" for i in items) + indent + "}"
-    raise TypeError(f"can't write {type(v).__name__} to Lua")
-
-
-_HEADER = """\
--- Generated by Kantele (https://github.com/dani-77/kantele). Don't edit:
--- Kantele rewrites this file on every save. Delete it to drop every
--- Kantele setting; config.lua loads it from its last line.
-
-"""
 
 _APPLY = """
 local function merge(dst, src)
@@ -465,16 +343,9 @@ return { settings = settings, keys = keys }
 
 
 def render_overrides(s: Settings) -> str:
-    tree: dict = {}
-    for spec in ALL_SPECS:  # spec order, so the file is stable
-        if spec.path not in s.overrides():
-            continue
-        t = tree
-        for k in spec.path[:-1]:
-            t = t.setdefault(k, {})
-        t[spec.path[-1]] = s.values[spec.path]
+    tree = overrides_tree(ALL_SPECS, s.values, s.base)
     keys = [entry_from_bind(b) for b in s.binds]
-    return (_HEADER + "local settings = " + lua_literal(tree) + "\n\n"
+    return (HEADER + "local settings = " + lua_literal(tree) + "\n\n"
             + "local keys = " + lua_literal(keys) + "\n" + _APPLY)
 
 
@@ -500,7 +371,7 @@ class Config:
         base = _run_lua(src, skip=True) if src else {}
         base = base if isinstance(base, dict) else {}
         for spec in ALL_SPECS:
-            s.base[spec.path] = _coerce(spec, _get(base, spec.path))
+            s.base[spec.path] = coerce(spec, get_path(base, spec.path))
         s.base_binds = [bind_from_entry(e) for e in base.get("keys") or []
                         if isinstance(e, dict)]
         s.values = dict(s.base)
@@ -508,9 +379,9 @@ class Config:
             mine = _run_lua(self.overrides_path, skip=False, what="return") or {}
             settings = mine.get("settings") or {}
             for spec in ALL_SPECS:
-                v = _get(settings, spec.path)
+                v = get_path(settings, spec.path)
                 if v is not None:
-                    s.values[spec.path] = _coerce(spec, v)
+                    s.values[spec.path] = coerce(spec, v)
             s.binds = [bind_from_entry(e) for e in mine.get("keys") or []
                        if isinstance(e, dict)]
         return s
@@ -520,40 +391,15 @@ class Config:
         the result through Lua as a check. Returns the backup of config.lua
         made when its loader line is first added, if any."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        backup = None
         if not self.existed:
             if not EXAMPLE.exists():
                 raise LuaError(f"No {self.path} and no {EXAMPLE} to start from.")
             shutil.copy(EXAMPLE, self.path)
             self.existed = True
-        text = self.path.read_text()
-        if LOADER_MARK not in text:
-            bak = self.path.with_name(self.path.name + ".kantele-bak")
-            if not bak.exists():
-                shutil.copy2(self.path, bak)
-                backup = bak
-            sep = "" if text.endswith("\n") or not text else "\n"
-            _atomic_write(self.path, text + sep + "\n" + LOADER)
-
-        new = render_overrides(s)
-        old = self.overrides_path.read_text() if self.overrides_path.exists() else None
-        if new != old:
-            _atomic_write(self.overrides_path, new)
-            try:
-                _run_lua(self.path, skip=False)
-            except LuaError:
-                if old is None:
-                    self.overrides_path.unlink()
-                else:
-                    _atomic_write(self.overrides_path, old)
-                raise
+        backup = add_loader(self.path, LOADER_MARK, LOADER)
+        write_checked(self.overrides_path, render_overrides(s),
+                      lambda: _run_lua(self.path, skip=False))
         return backup
-
-
-def _atomic_write(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".kantele-tmp")
-    tmp.write_text(text)
-    os.replace(tmp, path)
 
 
 def validate(s: Settings) -> list[str]:

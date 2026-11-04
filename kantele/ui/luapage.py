@@ -1,16 +1,17 @@
-"""Settings page for wasp."""
+"""Settings pages for the Lua-configured WMs (wasp, spitfire)."""
 
 from __future__ import annotations
 
 import shlex
 
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
+    QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox,
     QTableWidget, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
-from ..backends import wasp
+from ..backends import spitfire, wasp
+from ..backends.luautil import LuaError, Spec
 from .widgets import ColorButton, EditableTable, KeyCaptureDialog
 
 
@@ -21,7 +22,7 @@ def _note(text: str) -> QLabel:
     return lbl
 
 
-def _show(spec: wasp.Spec, v) -> str:
+def _show(spec: Spec, v) -> str:
     if spec.kind == "argv":
         return shlex.join(v)
     if spec.kind == "bool":
@@ -33,13 +34,19 @@ class Field:
     """One editable setting plus a reset button that brings back config.lua's
     value (which drops the setting from kantele.lua)."""
 
-    def __init__(self, spec: wasp.Spec):
+    def __init__(self, spec: Spec):
         self.spec = spec
         self.base = spec.default
         k = spec.kind
         if k == "int":
             w = QSpinBox()
             w.setRange(int(spec.lo), int(spec.hi))
+            w.valueChanged.connect(self._changed)
+        elif k == "float":
+            w = QDoubleSpinBox()
+            w.setRange(spec.lo, spec.hi)
+            w.setDecimals(2)
+            w.setSingleStep(0.05)
             w.valueChanged.connect(self._changed)
         elif k == "bool":
             w = QCheckBox()
@@ -71,6 +78,8 @@ class Field:
         w, k = self.widget, self.spec.kind
         if k == "int":
             w.setValue(int(v))
+        elif k == "float":
+            w.setValue(float(v))
         elif k == "bool":
             w.setChecked(bool(v))
         elif k == "color":
@@ -87,7 +96,7 @@ class Field:
 
     def get(self):
         w, k = self.widget, self.spec.kind
-        if k == "int":
+        if k in ("int", "float"):
             return w.value()
         if k == "bool":
             return w.isChecked()
@@ -111,7 +120,7 @@ class Field:
 
 
 class SpecTab(QWidget):
-    def __init__(self, specs: list[wasp.Spec], note: str = ""):
+    def __init__(self, specs: list[Spec], note: str = ""):
         super().__init__()
         lay = QVBoxLayout(self)
         form = QFormLayout()
@@ -123,17 +132,17 @@ class SpecTab(QWidget):
             lay.addWidget(_note(note))
         lay.addStretch()
 
-    def load(self, s: wasp.Settings) -> None:
+    def load(self, s) -> None:
         for f in self.fields:
             f.base = s.base[f.spec.path]
             f.set(s.values[f.spec.path])
 
-    def store(self, s: wasp.Settings) -> None:
+    def store(self, s) -> None:
         for f in self.fields:
             s.values[f.spec.path] = f.get()
 
 
-NOTES = {
+WASP_NOTES = {
     "Windows": "Border width and corner radius reach already open windows the next time "
                "they move or resize.",
     "Effects": "Turning blur on or off only affects windows opened afterwards.",
@@ -142,14 +151,12 @@ NOTES = {
 
 
 class KeysTab(QWidget):
-    def __init__(self, page: "WaspPage"):
+    def __init__(self, page: "LuaPage"):
         super().__init__()
         self.page = page
+        self.be = page.backend
         lay = QVBoxLayout(self)
-        lay.addWidget(_note(
-            "Your keybindings. They are checked before config.lua's, so the same key "
-            "here replaces config.lua's binding; the action \"none\" switches it off. "
-            "Keys look like mod+shift+Return; mod is the Mod key from the Keyboard tab."))
+        lay.addWidget(_note(page.keys_note))
         self.et = EditableTable(["Key", "Action", "Argument"], self._add)
         hh = self.et.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -177,7 +184,7 @@ class KeysTab(QWidget):
         row.addStretch()
         bl.addLayout(row)
         lay.addWidget(box, 1)
-        self.base_binds: list[wasp.Bind] = []
+        self.base_binds: list = []
 
     def _add(self, combo: str = "", action: str = "spawn", arg: str = "") -> None:
         t = self.et.table
@@ -195,7 +202,7 @@ class KeysTab(QWidget):
         h.addWidget(cap)
         t.setCellWidget(r, 0, cell)
         cb = QComboBox()
-        for a, (desc, _) in wasp.ACTIONS.items():
+        for a, (desc, _) in self.be.ACTIONS.items():
             cb.addItem(f"{a} — {desc}", a)
         idx = cb.findData(action)
         if idx < 0:
@@ -206,14 +213,10 @@ class KeysTab(QWidget):
         argedit = QLineEdit(arg)
         t.setCellWidget(r, 2, argedit)
 
-        hints = {"cmd": "command, e.g. foot -e fish", "dir": "1 or -1",
-                 "mondir": "left / right / up / down", "delta": "e.g. 0.05 or -0.05",
-                 "tag": "1-9, all, or empty for previous", "layout": " / ".join(wasp.LAYOUTS)
-                 + " (empty cycles)", "vt": "1-12", "moveresize": "dx=40 dy=0 dw=0 dh=0",
-                 "name": "scratchpad slot name"}
+        hints = self.be.HINTS
 
         def sync(_=None):
-            kind = wasp.ACTIONS.get(cb.currentData(), ("", None))[1]
+            kind = self.be.ACTIONS.get(cb.currentData(), ("", None))[1]
             argedit.setEnabled(kind is not None)
             argedit.setPlaceholderText(hints.get(kind, ""))
         cb.currentIndexChanged.connect(sync)
@@ -223,29 +226,34 @@ class KeysTab(QWidget):
     def _capture(self, edit: QLineEdit) -> None:
         d = KeyCaptureDialog(self)
         if d.exec() and d.result_key:
-            edit.setText(wasp.combo_from_penrose(d.result_key, self.page.modkey()))
+            edit.setText(self.be.combo_from_penrose(d.result_key, self.page.modkey()))
 
     def _from_base(self, disable: bool) -> None:
         for r in sorted({i.row() for i in self.base.selectedIndexes()}):
             b = self.base_binds[r]
             if disable:
                 self._add(b.combo, "none", "")
-            else:
+            elif b.action in self.be.ACTIONS:
                 self._add(b.combo, b.action, b.arg)
+            else:  # a Lua function: keep the key, pick a new action
+                self._add(b.combo, "spawn", "")
 
-    def load(self, s: wasp.Settings) -> None:
+    def load(self, s) -> None:
         self.base_binds = s.base_binds
         self.base.setRowCount(len(s.base_binds))
         for r, b in enumerate(s.base_binds):
-            desc = wasp.ACTIONS.get(b.action, ("?", None))[0]
-            for c, v in enumerate((b.combo, f"{b.action} — {desc}", b.arg)):
+            if b.action in self.be.ACTIONS:
+                action = f"{b.action} — {self.be.ACTIONS[b.action][0]}"
+            else:
+                action = "Lua function"
+            for c, v in enumerate((b.combo, action, b.arg)):
                 self.base.setItem(r, c, QTableWidgetItem(v))
         self.base.resizeColumnsToContents()
         self.et.table.setRowCount(0)
         for b in s.binds:
             self._add(b.combo, b.action, b.arg)
 
-    def store(self, s: wasp.Settings) -> None:
+    def store(self, s) -> None:
         t = self.et.table
         out = []
         for r in range(t.rowCount()):
@@ -253,26 +261,33 @@ class KeysTab(QWidget):
             action = t.cellWidget(r, 1).currentData()
             argw = t.cellWidget(r, 2)
             arg = argw.text().strip() if argw.isEnabled() else ""
-            out.append(wasp.Bind(combo, action, arg))
+            out.append(self.be.Bind(combo, action, arg))
         s.binds = out
 
 
-class WaspPage(QWidget):
-    title = "wasp"
+class LuaPage(QWidget):
+    """One page per Lua-configured WM; subclasses pick the backend."""
+
+    backend = wasp
+    title = ""
+    notes: dict[str, str] = {}
+    keys_note = ""
+    apply_hint = ""
 
     def __init__(self, path=None):
         super().__init__()
-        self.cfg = wasp.Config(path)
+        be = self.backend
+        self.cfg = be.Config(path)
         lay = QVBoxLayout(self)
         state = ("" if self.cfg.existed else
-                 f" <i>(will be created from {wasp.EXAMPLE})</i>")
-        lay.addWidget(QLabel(f"<b>wasp</b> — {self.cfg.path}{state}<br>"
+                 f" <i>(will be created from {be.EXAMPLE})</i>")
+        lay.addWidget(QLabel(f"<b>{self.title}</b> — {self.cfg.path}{state}<br>"
                              f"<small>Your changes go to {self.cfg.overrides_path.name}; "
                              "config.lua only gets one line that loads it. Bold settings "
                              "differ from config.lua.</small>"))
         self.tabs = QTabWidget()
-        self.parts = [(name, SpecTab(specs, NOTES.get(name, "")))
-                      for name, specs in wasp.SPECS.items()]
+        self.parts = [(name, SpecTab(specs, self.notes.get(name, "")))
+                      for name, specs in be.SPECS.items()]
         self.parts.append(("Keybindings", KeysTab(self)))
         for name, w in self.parts:
             self.tabs.addTab(w, name)
@@ -285,44 +300,69 @@ class WaspPage(QWidget):
                 for f in w.fields:
                     if f.spec.path == ("modkey",):
                         return f.get()
-        return "alt"
+        return ""
 
     def reload(self) -> None:
-        self.cfg = wasp.Config(self.cfg.path)
+        be = self.backend
+        self.cfg = be.Config(self.cfg.path)
         try:
             s = self.cfg.read()
-        except wasp.LuaError as e:
-            QMessageBox.critical(self, "Can't read wasp's config", str(e))
-            s = wasp.Settings()
-            for spec in wasp.ALL_SPECS:
+        except LuaError as e:
+            QMessageBox.critical(self, f"Can't read {self.title}'s config", str(e))
+            s = be.Settings()
+            for spec in be.ALL_SPECS:
                 s.base[spec.path] = s.values[spec.path] = spec.default
             self.setEnabled(False)
         for _, w in self.parts:
             w.load(s)
         self._settings = s
 
-    def collect(self) -> wasp.Settings:
-        s = wasp.Settings(base=dict(self._settings.base),
-                          base_binds=self._settings.base_binds)
+    def collect(self):
+        s = self.backend.Settings(base=dict(self._settings.base),
+                                  base_binds=self._settings.base_binds)
         for _, w in self.parts:
             w.store(s)
         return s
 
     def save(self, apply: bool) -> str | None:
+        be = self.backend
         s = self.collect()
-        errs = wasp.validate(s)
+        errs = be.validate(s)
         if errs:
             QMessageBox.warning(self, "Please fix these first",
                                 "\n".join(f"• {e}" for e in errs))
             return None
         try:
             backup = self.cfg.save(s)
-        except wasp.LuaError as e:
+        except LuaError as e:
             QMessageBox.critical(self, "Not saved",
-                                 "wasp's config doesn't load with these settings, so "
-                                 f"nothing was changed:\n\n{e}")
+                                 f"{self.title}'s config doesn't load with these settings, "
+                                 f"so nothing was changed:\n\n{e}")
             return None
-        msg = wasp.reload_running() if apply else "Saved."
+        msg = be.reload_running() if apply else "Saved."
         if backup:
             msg += f" (config.lua before Kantele's loader line: {backup.name}.)"
         return msg
+
+
+class WaspPage(LuaPage):
+    backend = wasp
+    title = "wasp"
+    notes = WASP_NOTES
+    keys_note = ("Your keybindings. They are checked before config.lua's, so the same key "
+                 "here replaces config.lua's binding; the action \"none\" switches it off. "
+                 "Keys look like mod+shift+Return; mod is the Mod key from the Keyboard tab.")
+
+
+class SpitfirePage(LuaPage):
+    backend = spitfire
+    title = "spitfire"
+    notes = {
+        "Windows": "Output scale is a starting value; Mod4+Shift+P/M still rescale live.",
+        "Effects": "Blur only applies to windows with a blur = true rule in config.lua.",
+    }
+    keys_note = ("Your keybindings replace config.lua's binding for the same key "
+                 "(spitfire 0.5.5 or newer; older releases keep config.lua's); the action "
+                 "\"none\" switches it off. Keys look like Mod4+Shift+Return: Mod4 = Super, "
+                 "Mod1 = Alt. config.lua's bindings are Lua functions, shown by the line "
+                 "that defines them.")

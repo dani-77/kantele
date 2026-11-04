@@ -15,9 +15,9 @@ from PyQt6.QtWidgets import (
 from . import __version__
 from .backends import detect_running
 from .ui.pwm import PwmPage
-from .ui.wasp import WaspPage
+from .ui.luapage import SpitfirePage, WaspPage
 
-PAGES = {"pwm": PwmPage, "wasp": WaspPage}
+PAGES = {"pwm": PwmPage, "spitfire": SpitfirePage, "wasp": WaspPage}
 
 
 def app_icon() -> QIcon:

@@ -16,7 +16,8 @@ setting at a time.
 |---|---|---|
 | [pwm](https://github.com/dani-77/pwm) | `~/.config/pwm/config.toml` | supported |
 | [wasp](https://github.com/dani-77/wasp) | `~/.config/wasp/config.lua` | supported |
-| [spitfire](https://github.com/dani-77/spitfire) | `~/.config/spitfire/config.lua` | planned |
+| [spitfire](https://github.com/dani-77/spitfire) | `~/.config/spitfire/config.lua` | supported |
+| [wmd77](https://github.com/d77void/wmd77) | `~/.config/wmd77/config.toml` | planned: needs wmd77 to read a config file (today its settings are compiled in) |
 
 ### pwm
 
@@ -63,6 +64,26 @@ recorder, next to `config.lua`'s, which you can override or disable).
 **Save and apply** sends `SIGHUP` to wasp, which reloads `config.lua` the same
 way mod+shift+r does (wasp 0.10.1 and newer). On older releases Kantele
 doesn't send it and asks you to press mod+shift+r.
+
+### spitfire
+
+Same approach as wasp: your changes go to `~/.config/spitfire/kantele.lua`,
+loaded from the last line of `config.lua`, which is otherwise left alone.
+
+spitfire's keybindings are Lua functions, so Kantele lists `config.lua`'s by
+the line that defines them rather than by action. Each Kantele binding first
+calls `spitfire.unbind` to drop `config.lua`'s binding for that key, then
+binds its own; `none` only unbinds, so the key reaches the window.
+`spitfire.unbind` is new in spitfire 0.5.5: with older releases
+`config.lua`'s binding still wins for keys it already binds.
+
+To read the current values Kantele runs `config.lua` with `lua5.4` and a
+stand-in `spitfire` table that records settings and bindings without doing
+anything.
+
+Pages: **Windows** (borders, gaps, snap, focus follows mouse, output scale),
+**Bar**, **Keyboard**, **Effects** (animation, blur) and **Keybindings**.
+**Save and apply** runs `spitfirectl reload`.
 
 ## Usage
 
