@@ -14,8 +14,9 @@ from PyQt6.QtWidgets import (
 from . import __version__
 from .backends import detect_running
 from .ui.pwm import PwmPage
+from .ui.wasp import WaspPage
 
-PAGES = {"pwm": PwmPage}
+PAGES = {"pwm": PwmPage, "wasp": WaspPage}
 
 
 class MainWindow(QMainWindow):

@@ -14,12 +14,13 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import signal
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import tomlkit
 from tomlkit.items import AoT, Table
+
+from . import send_reload
 
 NAME = "pwm"
 EXAMPLE = Path("/usr/share/pwm/config.toml.example")
@@ -293,42 +294,14 @@ def validate(s: Settings) -> list[str]:
 
 
 # ── applying to the running pwm ──────────────────────────────────────────
-def running_pids() -> list[int]:
-    uid = os.getuid()
-    pids = []
-    for p in Path("/proc").iterdir():
-        if not p.name.isdigit():
-            continue
-        try:
-            if (p / "comm").read_text().strip() == NAME and p.stat().st_uid == uid:
-                pids.append(int(p.name))
-        except OSError:
-            continue
-    return pids
-
-
-def catches_sighup(pid: int) -> bool:
-    """True if `pid` installed a SIGHUP handler. pwm < 0.6.5 doesn't, and
-    there SIGHUP's default action would kill the whole session."""
-    try:
-        for line in Path(f"/proc/{pid}/status").read_text().splitlines():
-            if line.startswith("SigCgt:"):
-                return bool(int(line.split()[1], 16) & (1 << (signal.SIGHUP - 1)))
-    except OSError:
-        pass
-    return False
-
-
 def reload_running() -> str:
     """Asks the running pwm to re-read its config. Returns a status message."""
-    pids = running_pids()
-    if not pids:
+    r = send_reload(NAME)
+    if r == "absent":
         return "Saved. pwm isn't running; it will use the new settings next time it starts."
-    if not all(catches_sighup(p) for p in pids):
+    if r == "unsupported":
         return ("Saved. This pwm can't reload on request (needs pwm 0.6.5 or newer): "
                 "press Super+Shift+R to apply.")
-    for p in pids:
-        os.kill(p, signal.SIGHUP)
     return "Saved and applied."
 
 
