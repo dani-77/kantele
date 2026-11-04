@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Kantele
+GenericName=Window Manager Settings
+Comment=Tune your window manager, string by string
+Exec=kantele
+Icon=preferences-desktop
+Terminal=false
+Categories=Settings;DesktopSettings;Qt;
+Keywords=pwm;window manager;keybindings;theme;
