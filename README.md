@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/kantele.png" alt="Kantele logo" width="256"></p>
+
 <h1 align="center">Kantele</h1>
 
 <p align="center"><i>Tune your window manager, string by string.</i></p>

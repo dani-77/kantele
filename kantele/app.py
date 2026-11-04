@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
@@ -19,11 +20,19 @@ from .ui.wasp import WaspPage
 PAGES = {"pwm": PwmPage, "wasp": WaspPage}
 
 
+def app_icon() -> QIcon:
+    """The installed theme icon, or the repo's logo when run from a checkout."""
+    if QIcon.hasThemeIcon("kantele"):
+        return QIcon.fromTheme("kantele")
+    logo = Path(__file__).resolve().parent.parent / "assets" / "kantele.png"
+    return QIcon(str(logo)) if logo.exists() else QIcon.fromTheme("preferences-desktop")
+
+
 class MainWindow(QMainWindow):
     def __init__(self, wm: str, path=None):
         super().__init__()
         self.setWindowTitle(f"Kantele — {wm}")
-        self.setWindowIcon(QIcon.fromTheme("kantele", QIcon.fromTheme("preferences-desktop")))
+        self.setWindowIcon(app_icon())
         self.page = PAGES[wm](path)
 
         central = QWidget()
@@ -69,6 +78,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("kantele")
     app.setDesktopFileName("kantele")
+    app.setWindowIcon(app_icon())
     w = MainWindow(wm, args.config)
     w.show()
     sys.exit(app.exec())
