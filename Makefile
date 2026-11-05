@@ -17,6 +17,7 @@ install:
 	install -m 644 kantele/backends/*.py $(LIBDIR)/kantele/backends/
 	install -m 644 kantele/ui/*.py $(LIBDIR)/kantele/ui/
 	install -Dm 755 kantele.sh $(DESTDIR)$(PREFIX)/bin/kantele
+	install -Dm 755 kantele-shell $(DESTDIR)$(PREFIX)/bin/kantele-shell
 	install -Dm 644 kantele.desktop $(DESTDIR)$(PREFIX)/share/applications/kantele.desktop
 	for n in $(SIZES); do \
 		install -Dm 644 assets/icons/kantele-$$n.png $(ICONDIR)/$${n}x$${n}/apps/kantele.png; \
@@ -25,5 +26,5 @@ install:
 
 uninstall:
 	rm -rf $(DESTDIR)$(PREFIX)/lib/kantele
-	rm -f $(DESTDIR)$(PREFIX)/bin/kantele $(DESTDIR)$(PREFIX)/share/applications/kantele.desktop
+	rm -f $(DESTDIR)$(PREFIX)/bin/kantele $(DESTDIR)$(PREFIX)/bin/kantele-shell $(DESTDIR)$(PREFIX)/share/applications/kantele.desktop
 	for n in $(SIZES) 512; do rm -f $(ICONDIR)/$${n}x$${n}/apps/kantele.png; done

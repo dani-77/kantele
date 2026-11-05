@@ -1,0 +1,178 @@
+#!/bin/sh
+# kantele-shell: run one desktop shell action on whichever d77 shell is active,
+# so compositor keybindings don't depend on a specific shell.
+#
+#   kantele-shell <launcher|wallpaper|lock|session|dashboard|ai>
+#
+# The active shell is the name in $XDG_CONFIG_HOME/kantele/shell if that file
+# exists, otherwise the one found running. This is plain sh because it runs on
+# every key press.
+
+KNOWN_SHELLS="quickshell-d77 utumno fabric-d77 helium-d77"
+
+warn() {
+	echo "kantele-shell: $1" >&2
+	if command -v notify-send >/dev/null 2>&1; then
+		notify-send ${2:+-u "$2"} Kantele "$1" >/dev/null 2>&1
+	fi
+}
+
+usage() {
+	echo "usage: kantele-shell <launcher|wallpaper|lock|session|dashboard|ai>" >&2
+	exit 2
+}
+
+qs_running() {
+	# The name after -c, not the whole command line: "qsd77 -c utumno launcher"
+	# and "sh -c 'qsd77 run -c utumno'" must not count as the shell itself.
+	pgrep -f "^([^ ]*/)?(qs|quickshell) (.* )?(-c|--config)[ =]$1( |\$)" >/dev/null 2>&1
+}
+
+fabric_running() {
+	# "python3 main.py" alone says nothing about which project this is, so look
+	# at both its arguments and its working directory.
+	for pid in $(pgrep -f 'python[^ ]* (.* )?([^ ]*/)?main\.py( |$)' 2>/dev/null); do
+		case "$(tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline") $(readlink "/proc/$pid/cwd" 2>/dev/null)" in
+		*fabric-d77*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
+running_shell() {
+	if qs_running quickshell-d77; then
+		echo quickshell-d77
+	elif qs_running utumno; then
+		echo utumno
+	elif fabric_running; then
+		echo fabric-d77
+	elif pgrep -x helium-shell >/dev/null 2>&1; then
+		echo helium-d77
+	fi
+}
+
+active_shell() {
+	override_file="${XDG_CONFIG_HOME:-$HOME/.config}/kantele/shell"
+	if [ -r "$override_file" ]; then
+		IFS= read -r override <"$override_file" || [ -n "$override" ]
+		case " $KNOWN_SHELLS " in
+		*" $override "*)
+			echo "$override"
+			return
+			;;
+		esac
+		warn "unknown shell '$override' in $override_file, ignoring it" >&2
+	fi
+	running_shell
+}
+
+run_qsd77() {
+	# qsd77 exits 0 and prints "Error: ..." when the IPC call fails.
+	output=$(qsd77 -c "$1" "$2" 2>&1)
+	status=$?
+	case "$status:$output" in
+	0:Error*) status=1 ;;
+	esac
+	if [ "$status" -ne 0 ]; then
+		warn "$1 did not respond to '$2'" "$urgency"
+	fi
+	return "$status"
+}
+
+run_fabric() {
+	if ! fabric-d77-signal "$1"; then
+		warn "fabric-d77 did not respond to the $verb action" "$urgency"
+		return 1
+	fi
+}
+
+helium_binary() {
+	# Next to the running helium-shell, so a development build uses its own
+	# siblings, as helium-shell itself does.
+	pid=$(pgrep -x helium-shell 2>/dev/null | head -n 1)
+	dir=""
+	if [ -n "$pid" ]; then
+		dir=$(dirname "$(readlink "/proc/$pid/exe" 2>/dev/null)")
+	fi
+	if [ -n "$dir" ] && [ -x "$dir/$1" ]; then
+		echo "$dir/$1"
+	else
+		echo "$1"
+	fi
+}
+
+helium_pattern() {
+	# Matched on the command line: some names exceed the 15 characters a process
+	# name keeps, so pgrep -x would never find them.
+	echo "^([^ ]*/)?$1( |\$)"
+}
+
+run_helium_toggle() {
+	# These open a new instance each time they're started, so a second press has
+	# to close the one that's open.
+	if pkill -f "$(helium_pattern "$1")" 2>/dev/null; then
+		return 0
+	fi
+	binary=$(helium_binary "$1")
+	if ! command -v "$binary" >/dev/null 2>&1; then
+		warn "$1 is not installed" "$urgency"
+		return 1
+	fi
+	exec "$binary"
+}
+
+run_helium_lock() {
+	# Never toggled: a second press must not unlock the session.
+	if pgrep -f "$(helium_pattern helium-locker)" >/dev/null 2>&1; then
+		return 0
+	fi
+	binary=$(helium_binary helium-locker)
+	if ! command -v "$binary" >/dev/null 2>&1; then
+		warn "helium-locker is not installed" "$urgency"
+		return 1
+	fi
+	exec "$binary"
+}
+
+no_equivalent() {
+	warn "$1 has no $verb"
+}
+
+[ "$#" -eq 1 ] || usage
+verb=$1
+urgency=""
+case "$verb" in
+launcher | wallpaper | session | dashboard | ai) ;;
+lock) urgency=critical ;;
+*) usage ;;
+esac
+
+shell=$(active_shell)
+if [ -z "$shell" ]; then
+	# Above all for lock: the user must know the screen did not lock.
+	warn "no active shell, nothing to run '$verb'" "$urgency"
+	exit 1
+fi
+
+case "$shell:$verb" in
+quickshell-d77:launcher | utumno:launcher) run_qsd77 "$shell" launcher ;;
+quickshell-d77:wallpaper | utumno:wallpaper) run_qsd77 "$shell" wallpaper ;;
+quickshell-d77:lock | utumno:lock) run_qsd77 "$shell" locker ;;
+quickshell-d77:session | utumno:session) run_qsd77 "$shell" session ;;
+quickshell-d77:dashboard) run_qsd77 "$shell" dashboard ;;
+quickshell-d77:ai | utumno:ai) run_qsd77 "$shell" ollama ;;
+utumno:dashboard | helium-d77:dashboard) no_equivalent "$shell" ;;
+
+fabric-d77:launcher) run_fabric USR1 ;;
+fabric-d77:session) run_fabric USR2 ;;
+fabric-d77:wallpaper) run_fabric RTMIN+6 ;;
+fabric-d77:dashboard) run_fabric RTMIN+7 ;;
+fabric-d77:lock) run_fabric RTMIN+8 ;;
+fabric-d77:ai) run_fabric RTMIN+9 ;;
+
+helium-d77:launcher) run_helium_toggle helium-launcher ;;
+helium-d77:wallpaper) run_helium_toggle helium-wallpaper ;;
+helium-d77:session) run_helium_toggle helium-session ;;
+helium-d77:ai) run_helium_toggle helium-ollama ;;
+helium-d77:lock) run_helium_lock ;;
+esac
