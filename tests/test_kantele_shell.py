@@ -2,6 +2,7 @@
 
 import os
 import pathlib
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -44,9 +45,19 @@ class KanteleShellTest(unittest.TestCase):
     def use_shell(self, name):
         (self.config / "kantele" / "shell").write_text(name + "\n")
 
-    def run_verb(self, *args):
+    def isolated_path(self):
+        """A PATH without this machine's own lockers."""
+        tools = self.root / "tools"
+        tools.mkdir(exist_ok=True)
+        for name in ("sh", "head", "dirname", "readlink", "tr"):
+            link = tools / name
+            if not link.exists():
+                link.symlink_to(shutil.which(name))
+        return f"{self.bin}:{tools}"
+
+    def run_verb(self, *args, path=None):
         env = {
-            "PATH": f"{self.bin}:/usr/bin:/bin",
+            "PATH": path or f"{self.bin}:/usr/bin:/bin",
             "HOME": str(self.root),
             "XDG_CONFIG_HOME": str(self.config),
         }
@@ -117,13 +128,38 @@ class KanteleShellTest(unittest.TestCase):
         self.assertEqual(self.logged("helium-launcher"), [])
         self.assertEqual(len(self.logged("pkill")), 1)
 
+    def test_helium_lock_prefers_hyprlock_and_skips_helium_locker(self):
+        self.use_shell("helium-d77")
+        self.stub("hyprlock")
+        self.stub("swaylock")
+        self.assertEqual(self.run_verb("lock").returncode, 0)
+        self.assertEqual(self.logged("hyprlock"), ["hyprlock "])
+        self.assertEqual(self.logged("swaylock"), [])
+        self.assertEqual(self.logged("helium-locker"), [])
+
+    def test_helium_lock_falls_back_to_swaylock(self):
+        self.use_shell("helium-d77")
+        self.stub("swaylock")
+        self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
+        self.assertEqual(self.logged("swaylock"), ["swaylock "])
+        self.assertEqual(self.logged("helium-locker"), [])
+
+    def test_helium_lock_without_a_locker_warns_critically(self):
+        self.use_shell("helium-d77")
+        result = self.run_verb("lock", path=self.isolated_path())
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("hyprlock or swaylock", result.stderr)
+        self.assertIn("-u critical", self.logged("notify-send")[0])
+        self.assertEqual(self.logged("helium-locker"), [])
+
     def test_helium_lock_never_toggles(self):
         self.use_shell("helium-d77")
+        self.stub("swaylock")
         self.stub("pkill", "exit 0")
         self.stub("pgrep", "exit 0")
-        self.assertEqual(self.run_verb("lock").returncode, 0)
+        self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
         self.assertEqual(self.logged("pkill"), [])
-        self.assertEqual(self.logged("helium-locker"), [])
+        self.assertEqual(self.logged("swaylock"), [])
 
     def test_lock_without_shell_warns_critically(self):
         result = self.run_verb("lock")

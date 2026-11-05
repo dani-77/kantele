@@ -122,16 +122,21 @@ run_helium_toggle() {
 }
 
 run_helium_lock() {
-	# Never toggled: a second press must not unlock the session.
-	if pgrep -f "$(helium_pattern helium-locker)" >/dev/null 2>&1; then
-		return 0
-	fi
-	binary=$(helium_binary helium-locker)
-	if ! command -v "$binary" >/dev/null 2>&1; then
-		warn "helium-locker is not installed" "$urgency"
-		return 1
-	fi
-	exec "$binary"
+	# Not helium-locker: a layer-shika bug makes the compositor cancel its lock
+	# (see lock_command() in helium-session.rs), and it's known not to unlock.
+	# Not "loginctl lock-session" either: with nothing listening, it does nothing
+	# and still reports success.
+	for locker in hyprlock swaylock; do
+		if command -v "$locker" >/dev/null 2>&1; then
+			# Never toggled: a second press must not start a second locker.
+			if pgrep -x "$locker" >/dev/null 2>&1; then
+				return 0
+			fi
+			exec "$locker"
+		fi
+	done
+	warn "helium-d77 needs hyprlock or swaylock to lock the screen" "$urgency"
+	return 1
 }
 
 no_equivalent() {
