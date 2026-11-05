@@ -128,27 +128,36 @@ class KanteleShellTest(unittest.TestCase):
         self.assertEqual(self.logged("helium-launcher"), [])
         self.assertEqual(len(self.logged("pkill")), 1)
 
-    def test_helium_lock_prefers_hyprlock_and_skips_helium_locker(self):
+    def test_helium_lock_prefers_amorphis_and_skips_helium_locker(self):
         self.use_shell("helium-d77")
-        self.stub("hyprlock")
+        self.stub("amorphis")
         self.stub("swaylock")
-        self.assertEqual(self.run_verb("lock").returncode, 0)
-        self.assertEqual(self.logged("hyprlock"), ["hyprlock "])
+        self.stub("hyprlock")
+        self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
+        self.assertEqual(self.logged("amorphis"), ["amorphis --backend wayland --effect blur"])
         self.assertEqual(self.logged("swaylock"), [])
+        self.assertEqual(self.logged("hyprlock"), [])
         self.assertEqual(self.logged("helium-locker"), [])
 
-    def test_helium_lock_falls_back_to_swaylock(self):
+    def test_helium_lock_falls_back_in_order(self):
         self.use_shell("helium-d77")
         self.stub("swaylock")
+        self.stub("hyprlock")
         self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
         self.assertEqual(self.logged("swaylock"), ["swaylock "])
+        self.assertEqual(self.logged("hyprlock"), [])
+
+        self.log.write_text("")
+        (self.bin / "swaylock").unlink()
+        self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
+        self.assertEqual(self.logged("hyprlock"), ["hyprlock "])
         self.assertEqual(self.logged("helium-locker"), [])
 
     def test_helium_lock_without_a_locker_warns_critically(self):
         self.use_shell("helium-d77")
         result = self.run_verb("lock", path=self.isolated_path())
         self.assertEqual(result.returncode, 1)
-        self.assertIn("hyprlock or swaylock", result.stderr)
+        self.assertIn("amorphis, swaylock or hyprlock", result.stderr)
         self.assertIn("-u critical", self.logged("notify-send")[0])
         self.assertEqual(self.logged("helium-locker"), [])
 

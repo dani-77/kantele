@@ -126,16 +126,19 @@ run_helium_lock() {
 	# (see lock_command() in helium-session.rs), and it's known not to unlock.
 	# Not "loginctl lock-session" either: with nothing listening, it does nothing
 	# and still reports success.
-	for locker in hyprlock swaylock; do
+	for locker in amorphis swaylock hyprlock; do
 		if command -v "$locker" >/dev/null 2>&1; then
 			# Never toggled: a second press must not start a second locker.
 			if pgrep -x "$locker" >/dev/null 2>&1; then
 				return 0
 			fi
+			if [ "$locker" = amorphis ]; then
+				exec amorphis --backend wayland --effect blur
+			fi
 			exec "$locker"
 		fi
 	done
-	warn "helium-d77 needs hyprlock or swaylock to lock the screen" "$urgency"
+	warn "helium-d77 needs amorphis, swaylock or hyprlock to lock the screen" "$urgency"
 	return 1
 }
 
