@@ -100,7 +100,10 @@ On wasp and spitfire, the **Shell** tab picks which d77 shell runs:
 [Utumno](https://github.com/dani-77/utumno),
 [fabric-d77](https://github.com/dani-77/fabric-d77) or
 [helium-d77](https://github.com/dani-77/helium-d77). Each compositor keeps its own
-choice. With nothing chosen, it keeps whatever it came with.
+choice. With nothing chosen, it keeps whatever it came with. A shell that isn't
+installed can be installed from the tab: with `pkexec xbps-install` on Void, which
+needs a polkit agent running and the d77 repository, and with `paru` or `yay` in a
+terminal on Arch.
 
 **Apply now** stops the current shell, starts the new one and turns the built-in
 bar off. If you don't confirm within 15 seconds, or the new shell doesn't come up,

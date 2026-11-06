@@ -20,6 +20,29 @@ SHELLS = {
 }
 KEEP_SECONDS = 15
 
+# What to install for each shell. On Void the shell packages leave quickshell out
+# on purpose, so it doesn't hold back system upgrades; on Arch they depend on it.
+VOID_PACKAGES = {
+    "quickshell-d77": ["quickshell", "qsd77", "quickshell-d77"],
+    "utumno": ["quickshell", "qsd77", "utumno"],
+    "fabric-d77": ["fabric-d77"],
+    "helium-d77": ["helium-d77"],
+}
+ARCH_PACKAGES = {
+    "quickshell-d77": ["qsd77", "quickshell-d77"],
+    "utumno": ["qsd77", "utumno"],
+    "fabric-d77": ["fabric-d77"],
+    "helium-d77": ["helium-d77"],
+}
+AUR_HELPERS = ("paru", "yay")
+# How each terminal runs a command given after this prefix.
+TERMINALS = {"foot": ["foot"], "kitty": ["kitty"], "alacritty": ["alacritty", "-e"],
+             "xterm": ["xterm", "-e"]}
+
+
+class CantInstall(Exception):
+    """Why this system can't install a shell, in words for the user."""
+
 # How a config.lua would start one of the shells by itself, once comments are gone.
 _STARTS_SHELL = re.compile(
     r"""qsd77["',\s]+run|\bqs["',\s]+-c\b|\bfabric-d77\b(?!-signal)|\bhelium-shell\b""")
@@ -33,6 +56,28 @@ def installed(shell: str) -> bool:
     if shell == "helium-d77":
         return bool(shutil.which("helium-shell") and shutil.which("helium-osd"))
     return False
+
+
+def install_command(shell: str) -> list[str]:
+    """The command that installs `shell` here. On Void, pkexec asks for the password.
+    On Arch, the AUR helper asks its own questions, so it gets a terminal."""
+    if shutil.which("xbps-install"):
+        if not shutil.which("pkexec"):
+            raise CantInstall("Installing needs pkexec (polkit).")
+        return ["pkexec", "xbps-install", "-Sy", *VOID_PACKAGES[shell]]
+    if shutil.which("pacman"):
+        helper = next((h for h in AUR_HELPERS if shutil.which(h)), None)
+        if not helper:
+            raise CantInstall("These packages are in the AUR, which needs paru or yay. "
+                              f"Or install by hand: {' '.join(ARCH_PACKAGES[shell])}")
+        terminal = next((t for t in TERMINALS if shutil.which(t)), None)
+        if not terminal:
+            raise CantInstall(f"No terminal found. Run: {helper} -S "
+                              f"{' '.join(ARCH_PACKAGES[shell])}")
+        script = ('"$@"; echo; printf "Press Enter to close. "; read -r _')
+        return [*TERMINALS[terminal], "sh", "-c", script, "kantele-install",
+                helper, "-S", *ARCH_PACKAGES[shell]]
+    raise CantInstall("Installing a shell from here only works on Void and Arch.")
 
 
 def command() -> str:

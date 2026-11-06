@@ -48,6 +48,51 @@ class ConfigStartsAShellTest(unittest.TestCase):
         self.assertFalse(shellctl.config_starts_a_shell(Path("/nonexistent/config.lua")))
 
 
+class InstallCommandTest(unittest.TestCase):
+    def which(self, *found):
+        return mock.patch.object(shellctl.shutil, "which",
+                                 side_effect=lambda name: name if name in found else None)
+
+    def test_void_also_installs_what_the_templates_leave_out(self):
+        with self.which("xbps-install", "pkexec"):
+            self.assertEqual(shellctl.install_command("utumno"),
+                             ["pkexec", "xbps-install", "-Sy", "quickshell", "qsd77", "utumno"])
+            self.assertEqual(shellctl.install_command("helium-d77")[-1], "helium-d77")
+
+    def test_void_without_pkexec(self):
+        with self.which("xbps-install"), self.assertRaises(shellctl.CantInstall):
+            shellctl.install_command("fabric-d77")
+
+    def test_arch_uses_the_helper_in_a_terminal(self):
+        with self.which("pacman", "yay", "alacritty"):
+            argv = shellctl.install_command("quickshell-d77")
+        self.assertEqual(argv[:3], ["alacritty", "-e", "sh"])
+        self.assertEqual(argv[-4:], ["yay", "-S", "qsd77", "quickshell-d77"])
+
+    def test_arch_prefers_paru_and_foot_needs_no_flag(self):
+        with self.which("pacman", "paru", "yay", "foot", "xterm"):
+            argv = shellctl.install_command("fabric-d77")
+        self.assertEqual(argv[:2], ["foot", "sh"])
+        self.assertEqual(argv[-3:], ["paru", "-S", "fabric-d77"])
+
+    def test_arch_without_a_helper_says_what_to_install(self):
+        with self.which("pacman"), self.assertRaisesRegex(shellctl.CantInstall, "paru or yay"):
+            shellctl.install_command("fabric-d77")
+
+    def test_arch_without_a_terminal_gives_the_command(self):
+        with self.which("pacman", "paru"), self.assertRaisesRegex(
+                shellctl.CantInstall, "paru -S fabric-d77"):
+            shellctl.install_command("fabric-d77")
+
+    def test_another_distro(self):
+        with self.which(), self.assertRaises(shellctl.CantInstall):
+            shellctl.install_command("fabric-d77")
+
+    def test_every_shell_has_packages_on_both(self):
+        self.assertEqual(set(shellctl.VOID_PACKAGES), set(shellctl.SHELLS))
+        self.assertEqual(set(shellctl.ARCH_PACKAGES), set(shellctl.SHELLS))
+
+
 @unittest.skipUnless(shutil.which(wasp.LUA), "needs lua5.4")
 class ChooseTest(unittest.TestCase):
     def setUp(self):
@@ -108,6 +153,45 @@ class ChooseTest(unittest.TestCase):
         self.assertEqual(shellctl.chosen("wasp"), "utumno")
         self.assertEqual(dict(page.parts)["Shell"].selected(), "utumno")
         self.assertTrue(wasp.Config().read().shell_autostart)
+        page.deleteLater()
+        app.processEvents()
+
+    @unittest.skipIf(QApplication is None, "needs PyQt6")
+    def test_a_missing_shell_offers_install_instead_of_apply(self):
+        app = QApplication.instance() or QApplication([])
+        with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "wasp"}), \
+                mock.patch.object(shellctl, "status", return_value={}), \
+                mock.patch.object(shellctl, "installed",
+                                  side_effect=lambda name: name != "helium-d77"):
+            page = luapage.WaspPage()
+            page.show()
+            tab = dict(page.parts)["Shell"]
+            tab.combo.setCurrentIndex(tab.combo.findData("helium-d77"))
+            self.assertIn("not installed", tab.combo.currentText())
+            self.assertFalse(tab.install_button.isHidden())
+            self.assertFalse(tab.apply_button.isEnabled())
+            self.assertFalse(tab.next_button.isEnabled())
+
+            tab.combo.setCurrentIndex(tab.combo.findData("utumno"))
+            self.assertTrue(tab.install_button.isHidden())
+            self.assertTrue(tab.apply_button.isEnabled())
+            page.deleteLater()
+            app.processEvents()
+
+    @unittest.skipIf(QApplication is None, "needs PyQt6")
+    def test_apply_asks_when_config_lua_starts_a_shell(self):
+        app = QApplication.instance() or QApplication([])
+        (self.home / "wasp/config.lua").write_text(CONFIG + 'wasp.autostart = { { "fabric-d77" } }\n')
+        page = luapage.WaspPage()
+        tab = dict(page.parts)["Shell"]
+        tab.combo.setCurrentIndex(tab.combo.findData("utumno"))
+        self.assertIn("config.lua also starts", tab.warning.text())
+        with mock.patch.object(luapage.QMessageBox, "warning",
+                               return_value=luapage.QMessageBox.StandardButton.No) as asked, \
+                mock.patch.object(tab, "run") as run:
+            tab.apply_now()
+        asked.assert_called_once()
+        run.assert_not_called()
         page.deleteLater()
         app.processEvents()
 

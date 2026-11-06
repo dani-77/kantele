@@ -280,12 +280,7 @@ class ShellTab(QWidget):
         lay = QVBoxLayout(self)
 
         self.combo = QComboBox()
-        self.combo.addItem(f"What {self.wm} came with", "")
-        for name, label in shellctl.SHELLS.items():
-            ok = shellctl.installed(name)
-            self.combo.addItem(label if ok else f"{label} (not installed)", name)
-            if not ok:
-                self.combo.model().item(self.combo.count() - 1).setEnabled(False)
+        self.combo.currentIndexChanged.connect(lambda _: self._update_buttons())
         form = QFormLayout()
         form.addRow("Shell:", self.combo)
         lay.addLayout(form)
@@ -293,10 +288,15 @@ class ShellTab(QWidget):
         self.state = QLabel()
         self.state.setWordWrap(True)
         lay.addWidget(self.state)
-        self.warning = _note("")
+        self.warning = QLabel()
+        self.warning.setWordWrap(True)
+        self.warning.setStyleSheet("color: #d95c5c; font-weight: bold;")
         lay.addWidget(self.warning)
 
         row = QHBoxLayout()
+        self.install_button = QPushButton("Install")
+        self.install_button.clicked.connect(self.install)
+        row.addWidget(self.install_button)
         self.apply_button = QPushButton("Apply now")
         self.apply_button.clicked.connect(self.apply_now)
         self.next_button = QPushButton("Use from next login")
@@ -321,11 +321,28 @@ class ShellTab(QWidget):
     def store(self, _settings) -> None:
         pass
 
+    def _fill_combo(self, selected: str) -> None:
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        self.combo.addItem(f"What {self.wm} came with", "")
+        for name, label in shellctl.SHELLS.items():
+            ok = shellctl.installed(name)
+            self.combo.addItem(label if ok else f"{label} (not installed)", name)
+        self.combo.setCurrentIndex(max(0, self.combo.findData(selected)))
+        self.combo.blockSignals(False)
+
+    def _update_buttons(self) -> None:
+        shell = self.selected()
+        missing = bool(shell) and not shellctl.installed(shell)
+        self.install_button.setVisible(missing)
+        self.next_button.setEnabled(not missing)
+        self.apply_button.setEnabled(not missing and shellctl.is_running_session(self.wm))
+
     def refresh(self) -> None:
         here = shellctl.is_running_session(self.wm)
         status = shellctl.status() if here else {}
         chosen = shellctl.chosen(self.wm)
-        self.combo.setCurrentIndex(max(0, self.combo.findData(chosen)))
+        self._fill_combo(chosen)
 
         running = status.get("running", "")
         parts = [f"Chosen: {shellctl.SHELLS.get(chosen, 'nothing')}."]
@@ -336,12 +353,34 @@ class ShellTab(QWidget):
                          "next login.")
         self.state.setText(" ".join(parts))
 
-        self.apply_button.setEnabled(here)
+        self._update_buttons()
         self.back_button.setEnabled(here and bool(status.get("previous")))
-        starts = shellctl.config_starts_a_shell(self.page.cfg.path)
-        self.warning.setText(
-            "config.lua also starts a shell by itself. Remove that entry, or it will run "
-            "instead of the one chosen here." if starts else "")
+        self.warning.setText(self.CONFIG_WARNING if self._config_starts_a_shell() else "")
+
+    CONFIG_WARNING = ("config.lua also starts a shell by itself. Remove that entry, or it "
+                      "will run instead of the one chosen here.")
+
+    def _config_starts_a_shell(self) -> bool:
+        return shellctl.config_starts_a_shell(self.page.cfg.path)
+
+    def install(self) -> None:
+        shell = self.selected()
+        try:
+            argv = shellctl.install_command(shell)
+        except shellctl.CantInstall as e:
+            QMessageBox.information(self, "Can't install from here", str(e))
+            return
+        self.run_command(argv, self._installed)
+
+    def _installed(self, code: int, process: QProcess) -> None:
+        self.setEnabled(True)
+        selected = self.selected()
+        if not shellctl.installed(selected):
+            error = bytes(process.readAllStandardError()).decode(errors="replace").strip()
+            QMessageBox.warning(self, "Not installed",
+                                error or "The shell doesn't look installed.")
+        self.refresh()
+        self.combo.setCurrentIndex(max(0, self.combo.findData(selected)))
 
     def selected(self) -> str:
         return self.combo.currentData() or ""
@@ -364,15 +403,26 @@ class ShellTab(QWidget):
         if not shell:
             self.use_next_login()
             return
+        if self._config_starts_a_shell():
+            go_on = QMessageBox.warning(
+                self, "config.lua starts a shell", self.CONFIG_WARNING + "\n\nApply anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if go_on != QMessageBox.StandardButton.Yes:
+                return
         if self._saved_first():
             self.run(["switch", shell], self.confirm)
 
     def run(self, args: list[str], done) -> None:
+        self.run_command([shellctl.command(), *args], done)
+
+    def run_command(self, argv: list[str], done) -> None:
         self.setEnabled(False)
         self.state.setText("Working…")
         process = QProcess(self)
         process.finished.connect(lambda code, _status: done(code, process))
-        process.start(shellctl.command(), args)
+        process.errorOccurred.connect(lambda _error: self.setEnabled(True))
+        process.start(argv[0], argv[1:])
         self.process = process
 
     def finished(self, code: int, process: QProcess) -> None:
