@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import shlex
 
+from PyQt6.QtCore import QProcess, QTimer
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox,
     QTableWidget, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
+from .. import shellctl
 from ..backends import spitfire, wasp
 from ..backends.luautil import LuaError, Spec
 from .widgets import ColorButton, EditableTable, KeyCaptureDialog
@@ -265,6 +267,158 @@ class KeysTab(QWidget):
         s.binds = out
 
 
+class ShellTab(QWidget):
+    """Picks the desktop shell for this compositor. The switch itself, and going
+    back if it isn't confirmed, belong to kantele-shell, so they survive this
+    window closing."""
+
+    def __init__(self, page: "LuaPage"):
+        super().__init__()
+        self.page = page
+        self.wm = page.backend.NAME
+        self.process: QProcess | None = None
+        lay = QVBoxLayout(self)
+
+        self.combo = QComboBox()
+        self.combo.addItem(f"What {self.wm} came with", "")
+        for name, label in shellctl.SHELLS.items():
+            ok = shellctl.installed(name)
+            self.combo.addItem(label if ok else f"{label} (not installed)", name)
+            if not ok:
+                self.combo.model().item(self.combo.count() - 1).setEnabled(False)
+        form = QFormLayout()
+        form.addRow("Shell:", self.combo)
+        lay.addLayout(form)
+
+        self.state = QLabel()
+        self.state.setWordWrap(True)
+        lay.addWidget(self.state)
+        self.warning = _note("")
+        lay.addWidget(self.warning)
+
+        row = QHBoxLayout()
+        self.apply_button = QPushButton("Apply now")
+        self.apply_button.clicked.connect(self.apply_now)
+        self.next_button = QPushButton("Use from next login")
+        self.next_button.clicked.connect(self.use_next_login)
+        self.back_button = QPushButton("Back to previous shell")
+        self.back_button.clicked.connect(lambda: self.run(["restore"], self.finished))
+        for button in (self.apply_button, self.next_button, self.back_button):
+            row.addWidget(button)
+        row.addStretch()
+        lay.addLayout(row)
+
+        lay.addWidget(_note(
+            "With nothing chosen here, the compositor keeps what it came with. Applying "
+            "stops the current shell and turns the built-in bar off. If you don't confirm "
+            f"within {shellctl.KEEP_SECONDS} seconds, the previous shell comes back."))
+        lay.addStretch()
+
+    # The tab keeps no settings of its own in kantele.lua's editable values.
+    def load(self, _settings) -> None:
+        self.refresh()
+
+    def store(self, _settings) -> None:
+        pass
+
+    def refresh(self) -> None:
+        here = shellctl.is_running_session(self.wm)
+        status = shellctl.status() if here else {}
+        chosen = shellctl.chosen(self.wm)
+        self.combo.setCurrentIndex(max(0, self.combo.findData(chosen)))
+
+        running = status.get("running", "")
+        parts = [f"Chosen: {shellctl.SHELLS.get(chosen, 'nothing')}."]
+        if here:
+            parts.insert(0, f"Running now: {shellctl.SHELLS.get(running, 'none')}.")
+        else:
+            parts.append(f"You're not in a {self.wm} session, so this takes effect at its "
+                         "next login.")
+        self.state.setText(" ".join(parts))
+
+        self.apply_button.setEnabled(here)
+        self.back_button.setEnabled(here and bool(status.get("previous")))
+        starts = shellctl.config_starts_a_shell(self.page.cfg.path)
+        self.warning.setText(
+            "config.lua also starts a shell by itself. Remove that entry, or it will run "
+            "instead of the one chosen here." if starts else "")
+
+    def selected(self) -> str:
+        return self.combo.currentData() or ""
+
+    def _saved_first(self) -> bool:
+        # kantele-shell rewrites kantele.lua, and that would lose edits on other tabs.
+        return self.page.save(False) is not None
+
+    def use_next_login(self) -> None:
+        if not self._saved_first():
+            return
+        try:
+            shellctl.choose(self.wm, self.selected())
+        except (LuaError, OSError) as e:
+            QMessageBox.critical(self, "Not saved", str(e))
+        self.page.reload()
+
+    def apply_now(self) -> None:
+        shell = self.selected()
+        if not shell:
+            self.use_next_login()
+            return
+        if self._saved_first():
+            self.run(["switch", shell], self.confirm)
+
+    def run(self, args: list[str], done) -> None:
+        self.setEnabled(False)
+        self.state.setText("Working…")
+        process = QProcess(self)
+        process.finished.connect(lambda code, _status: done(code, process))
+        process.start(shellctl.command(), args)
+        self.process = process
+
+    def finished(self, code: int, process: QProcess) -> None:
+        self.setEnabled(True)
+        if code != 0:
+            error = bytes(process.readAllStandardError()).decode(errors="replace").strip()
+            QMessageBox.warning(self, "Shell not changed", error or "kantele-shell failed.")
+        self.page.reload()
+
+    def confirm(self, code: int, process: QProcess) -> None:
+        if code != 0:
+            self.finished(code, process)
+            return
+        self.setEnabled(True)
+        self.page.reload()
+        if ask_to_keep(self):
+            self.run(["keep"], self.finished)
+        else:
+            self.run(["restore"], self.finished)
+
+
+def ask_to_keep(parent: QWidget) -> bool:
+    """Runs out shortly before kantele-shell goes back by itself, which still happens
+    if this window is gone by then."""
+    box = QMessageBox(parent)
+    box.setWindowTitle("Keep this shell?")
+    keep = box.addButton("Keep", QMessageBox.ButtonRole.AcceptRole)
+    back = box.addButton("Go back", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(keep)
+    left = [shellctl.KEEP_SECONDS - 1]
+
+    def tick() -> None:
+        box.setText(f"Keep this shell? Going back in {left[0]} seconds.")
+        left[0] -= 1
+        if left[0] < 0:
+            back.click()
+
+    timer = QTimer(box)
+    timer.timeout.connect(tick)
+    tick()
+    timer.start(1000)
+    box.exec()
+    timer.stop()
+    return box.clickedButton() is keep
+
+
 class LuaPage(QWidget):
     """One page per Lua-configured WM; subclasses pick the backend."""
 
@@ -289,6 +443,7 @@ class LuaPage(QWidget):
         self.parts = [(name, SpecTab(specs, self.notes.get(name, "")))
                       for name, specs in be.SPECS.items()]
         self.parts.append(("Keybindings", KeysTab(self)))
+        self.parts.append(("Shell", ShellTab(self)))
         for name, w in self.parts:
             self.tabs.addTab(w, name)
         lay.addWidget(self.tabs)
@@ -319,7 +474,8 @@ class LuaPage(QWidget):
 
     def collect(self):
         s = self.backend.Settings(base=dict(self._settings.base),
-                                  base_binds=self._settings.base_binds)
+                                  base_binds=self._settings.base_binds,
+                                  shell_autostart=self._settings.shell_autostart)
         for _, w in self.parts:
             w.store(s)
         return s

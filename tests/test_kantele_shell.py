@@ -216,6 +216,81 @@ class KanteleShellTest(unittest.TestCase):
         self.assertEqual(self.run_verb("nope").returncode, 2)
         self.assertEqual(self.run_verb("lock", "extra").returncode, 2)
 
+    def session(self, *args, desktop="wasp", path=None):
+        env = {
+            "PATH": path or f"{self.bin}:/usr/bin:/bin",
+            "HOME": str(self.root),
+            "XDG_CONFIG_HOME": str(self.config),
+            "XDG_CACHE_HOME": str(self.root / "cache"),
+            "XDG_CURRENT_DESKTOP": desktop,
+        }
+        return subprocess.run(["sh", str(SCRIPT), *args], env=env, capture_output=True,
+                              text=True, check=False, stdin=subprocess.DEVNULL)
+
+    def test_start_without_a_choice_does_nothing(self):
+        result = self.session("start")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.log.read_text(), "")
+
+    def test_session_commands_need_wasp_or_spitfire(self):
+        for command in ("start", "stop", "status", "keep", "restore"):
+            self.assertEqual(self.session(command, desktop="sway").returncode, 2)
+
+    def test_status_reports_the_choice(self):
+        (self.config / "kantele" / "shell-wasp").write_text("fabric-d77\n")
+        (self.config / "kantele" / "shell-wasp.previous").write_text("none\n")
+        out = self.session("status").stdout
+        self.assertIn("compositor=wasp\n", out)
+        self.assertIn("chosen=fabric-d77\n", out)
+        self.assertIn("previous=none\n", out)
+        self.assertIn("pending=no\n", out)
+
+    def test_each_compositor_has_its_own_choice(self):
+        (self.config / "kantele" / "shell-wasp").write_text("fabric-d77\n")
+        (self.config / "kantele" / "shell-spitfire").write_text("utumno\n")
+        self.assertIn("chosen=utumno\n", self.session("status", desktop="spitfire").stdout)
+        self.assertIn("chosen=fabric-d77\n", self.session("status").stdout)
+
+    def test_switch_refuses_an_unknown_shell(self):
+        result = self.session("switch", "noctalia")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unknown shell", result.stderr)
+
+    def test_switch_refuses_a_missing_shell(self):
+        result = self.session("switch", "helium-d77", path=self.isolated_path())
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not installed", result.stderr)
+
+    def test_switch_refuses_while_locked(self):
+        self.stub("fabric-d77")
+        self.stub("pgrep", '[ "$2" = amorphis ] && { echo 1; exit 0; }\nexit 1')
+        result = self.session("switch", "fabric-d77")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("locked", result.stderr)
+        self.assertEqual(self.logged("fabric-d77"), [])
+
+    def test_restore_without_a_previous_shell_warns(self):
+        result = self.session("restore")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no previous shell", result.stderr)
+
+    def test_restore_to_none_clears_the_choice(self):
+        self.stub("kantele")
+        (self.config / "kantele" / "shell-wasp").write_text("fabric-d77\n")
+        (self.config / "kantele" / "shell-wasp.previous").write_text("none\n")
+        self.assertEqual(self.session("restore").returncode, 0)
+        self.assertFalse((self.config / "kantele" / "shell-wasp").exists())
+        self.assertEqual(self.logged("kantele"),
+                         ["kantele shell-setup --wm wasp --autostart off --bar default"])
+
+    def test_keep_clears_only_the_pending_marker(self):
+        pending = self.config / "kantele" / "shell-wasp.pending"
+        pending.write_text("token\n")
+        (self.config / "kantele" / "shell-wasp.previous").write_text("utumno\n")
+        self.assertEqual(self.session("keep").returncode, 0)
+        self.assertFalse(pending.exists())
+        self.assertTrue((self.config / "kantele" / "shell-wasp.previous").exists())
+
     def test_is_executable_in_the_repo(self):
         self.assertTrue(os.access(SCRIPT, os.X_OK))
 

@@ -66,8 +66,8 @@ result through Lua and keeps the previous `kantele.lua` if that fails.
 
 Pages: **Windows** (borders, gaps, snap, background), **Bar**, **Keyboard**
 (mod key, layout, repeat), **Applications** (terminal, launcher),
-**Effects** (animations, blur) and **Keybindings** (yours, with a key
-recorder, next to `config.lua`'s, which you can override or disable).
+**Effects** (animations, blur), **Keybindings** (yours, with a key recorder,
+next to `config.lua`'s, which you can override or disable) and **Shell**.
 
 **Save and apply** sends `SIGHUP` to wasp, which reloads `config.lua` the same
 way mod+shift+r does (wasp 0.10.1 and newer). On older releases Kantele
@@ -90,15 +90,29 @@ stand-in `spitfire` table that records settings and bindings without doing
 anything.
 
 Pages: **Windows** (borders, gaps, snap, focus follows mouse, output scale),
-**Bar**, **Keyboard**, **Effects** (animation, blur) and **Keybindings**.
+**Bar**, **Keyboard**, **Effects** (animation, blur), **Keybindings** and **Shell**.
 **Save and apply** runs `spitfirectl reload`.
 
-## Shell keys
+## Desktop shells
 
-`kantele shell-keys` gives wasp and spitfire the same keys for shell actions
-(launcher, lock, session menu, wallpaper, chat, dashboard), whichever d77 shell
-is running. `kantele-shell reset` undoes it. See
-[doc/shell-keys.md](doc/shell-keys.md).
+On wasp and spitfire, the **Shell** tab picks which d77 shell runs:
+[quickshell-d77](https://github.com/dani-77/quickshell-d77),
+[Utumno](https://github.com/dani-77/utumno),
+[fabric-d77](https://github.com/dani-77/fabric-d77) or
+[helium-d77](https://github.com/dani-77/helium-d77). Each compositor keeps its own
+choice. With nothing chosen, it keeps whatever it came with.
+
+**Apply now** stops the current shell, starts the new one and turns the built-in
+bar off. If you don't confirm within 15 seconds, or the new shell doesn't come up,
+the previous one comes back. **Use from next login** only saves the choice, which
+also works for a compositor you aren't running. If `config.lua` starts a shell by
+itself, the tab warns you: remove that entry, as Kantele doesn't edit the file.
+
+`kantele shell-keys` gives both compositors the same keys for shell actions, and
+`kantele-shell reset` undoes it. See [doc/shell-keys.md](doc/shell-keys.md).
+
+From a terminal, `kantele-shell` has `status`, `switch <shell>`, `keep`, `restore`,
+`start` and `stop`. `Super+Shift+Z` also goes back to the previous shell.
 
 ## Usage
 
@@ -111,7 +125,7 @@ kantele shell-keys      # add the common shell keys (wasp, spitfire)
 
 ## Install
 
-Needs Python 3.11+, PyQt6, tomlkit and, for wasp, Lua 5.4 (Void:
+Needs Python 3.11+, PyQt6, tomlkit and, for wasp and spitfire, Lua 5.4 (Void:
 `python3-pyqt6` `python3-pyqt6-gui` `python3-pyqt6-widgets` `python3-tomlkit`
 `lua54`).
 

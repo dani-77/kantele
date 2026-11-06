@@ -13,6 +13,7 @@ part of this: wasp keeps `Alt` as its mod key and spitfire keeps `Super`.
 | `Super+Y` | Wallpaper | `wallpaper` | Yes | Yes | Yes | Yes |
 | `Super+A` | Ollama chat | `ai` | Yes | Yes | Yes | Yes |
 | `Super+N` | Dashboard | `dashboard` | Yes | No | Yes | No |
+| `Super+Shift+Z` | Back to the previous shell | `restore` | Yes | Yes | Yes | Yes |
 
 Where a shell has no equivalent, the key shows a notification and does nothing else.
 

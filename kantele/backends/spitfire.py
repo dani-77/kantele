@@ -205,6 +205,7 @@ class Settings:
     base: dict[tuple[str, ...], object] = field(default_factory=dict)
     binds: list[Bind] = field(default_factory=list)
     base_binds: list[Bind] = field(default_factory=list)
+    shell_autostart: bool = False  # kantele.lua adds `kantele-shell start`
 
     def overrides(self) -> dict[tuple[str, ...], object]:
         return {p: v for p, v in self.values.items() if v != self.base.get(p)}
@@ -335,7 +336,12 @@ for _, k in ipairs(keys) do
   end
 end
 
-return { settings = settings, keys = keys }
+-- spitfire.autostart adds to the list, so config.lua's own entries stay.
+if shell_autostart then
+  spitfire.autostart({ "kantele-shell start" })
+end
+
+return { settings = settings, keys = keys, shell_autostart = shell_autostart }
 """
 
 
@@ -343,7 +349,8 @@ def render_overrides(s: Settings) -> str:
     tree = overrides_tree(ALL_SPECS, s.values, s.base)
     keys = [entry_from_bind(b) for b in s.binds]
     return (HEADER + "local settings = " + lua_literal(tree) + "\n\n"
-            + "local keys = " + lua_literal(keys) + "\n" + _APPLY)
+            + "local keys = " + lua_literal(keys) + "\n\n"
+            + "local shell_autostart = " + lua_literal(s.shell_autostart) + "\n" + _APPLY)
 
 
 # ── config ───────────────────────────────────────────────────────────────
@@ -382,6 +389,7 @@ class Config:
                     s.values[spec.path] = coerce(spec, v)
             s.binds = [bind_from_entry(e) for e in mine.get("keys") or []
                        if isinstance(e, dict)]
+            s.shell_autostart = bool(mine.get("shell_autostart"))
         return s
 
     def save(self, s: Settings) -> Path | None:

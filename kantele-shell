@@ -4,9 +4,14 @@
 #
 #   kantele-shell <launcher|wallpaper|lock|session|dashboard|ai>
 #   kantele-shell reset [wasp|spitfire]
+#   kantele-shell start | stop | status | switch <shell> | keep | restore
 #
 # reset undoes `kantele shell-keys`: it restores the compositor's files from
 # before the keys were added, and reloads it.
+#
+# start runs the shell chosen for this compositor, and does nothing if none was
+# chosen. switch changes shell and goes back by itself after 15 seconds unless
+# confirmed with keep. restore goes back to the previous shell.
 #
 # The active shell is the name in $XDG_CONFIG_HOME/kantele/shell if that file
 # exists, otherwise the one found running. This is plain sh because it runs on
@@ -24,34 +29,52 @@ warn() {
 usage() {
 	echo "usage: kantele-shell <launcher|wallpaper|lock|session|dashboard|ai>" >&2
 	echo "       kantele-shell reset [wasp|spitfire]" >&2
+	echo "       kantele-shell start | stop | status | switch <shell> | keep | restore" >&2
 	exit 2
 }
 
-qs_running() {
-	# The name after -c, not the whole command line: "qsd77 -c utumno launcher"
-	# and "sh -c 'qsd77 run -c utumno'" must not count as the shell itself.
-	pgrep -f "^([^ ]*/)?(qs|quickshell) (.* )?(-c|--config)[ =]$1( |\$)" >/dev/null 2>&1
+on_this_display() {
+	# Another session on another VT can run its own shell; never act on that one.
+	[ -n "${WAYLAND_DISPLAY:-}" ] || return 0
+	{ tr '\0' '\n' <"/proc/$1/environ"; } 2>/dev/null | grep -qx "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
 }
 
-fabric_running() {
+qs_pids() {
+	# The name after -c, not the whole command line: "qsd77 -c utumno launcher"
+	# and "sh -c 'qsd77 run -c utumno'" must not count as the shell itself, and
+	# neither must a short-lived "qs -c utumno ipc ...".
+	for pid in $(pgrep -f "^([^ ]*/)?(qs|quickshell) (.* )?(-c|--config)[ =]$1( |\$)" 2>/dev/null); do
+		case " $({ tr '\0' ' ' <"/proc/$pid/cmdline"; } 2>/dev/null)" in
+		*" ipc "*) continue ;;
+		esac
+		on_this_display "$pid" && echo "$pid"
+	done
+}
+
+fabric_pids() {
 	# "python3 main.py" alone says nothing about which project this is, so look
 	# at both its arguments and its working directory.
 	for pid in $(pgrep -f 'python[^ ]* (.* )?([^ ]*/)?main\.py( |$)' 2>/dev/null); do
-		case "$(tr '\0' ' ' 2>/dev/null <"/proc/$pid/cmdline") $(readlink "/proc/$pid/cwd" 2>/dev/null)" in
-		*fabric-d77*) return 0 ;;
+		case "$({ tr '\0' ' ' <"/proc/$pid/cmdline"; } 2>/dev/null) $(readlink "/proc/$pid/cwd" 2>/dev/null)" in
+		*fabric-d77*) on_this_display "$pid" && echo "$pid" ;;
 		esac
 	done
-	return 1
+}
+
+named_pids() {
+	for pid in $(pgrep -x "$1" 2>/dev/null); do
+		on_this_display "$pid" && echo "$pid"
+	done
 }
 
 running_shell() {
-	if qs_running quickshell-d77; then
+	if [ -n "$(qs_pids quickshell-d77)" ]; then
 		echo quickshell-d77
-	elif qs_running utumno; then
+	elif [ -n "$(qs_pids utumno)" ]; then
 		echo utumno
-	elif fabric_running; then
+	elif [ -n "$(fabric_pids)" ]; then
 		echo fabric-d77
-	elif pgrep -x helium-shell >/dev/null 2>&1; then
+	elif [ -n "$(named_pids helium-shell)" ]; then
 		echo helium-d77
 	fi
 }
@@ -239,11 +262,300 @@ reset_keys() {
 	echo "kantele-shell: restored the $compositor files from before the keys were added"
 }
 
-if [ "${1:-}" = reset ]; then
+KEEP_SECONDS=15
+VERIFY_SECONDS=12
+VERIFY_STABLE=3
+
+compositor_or_usage() {
+	case "${XDG_CURRENT_DESKTOP:-}" in
+	wasp | spitfire) compositor=$XDG_CURRENT_DESKTOP ;;
+	*)
+		echo "kantele-shell: this needs a running wasp or spitfire session" >&2
+		exit 2
+		;;
+	esac
+	state_dir=${XDG_CONFIG_HOME:-$HOME/.config}/kantele
+	choice_file=$state_dir/shell-$compositor
+	previous_file=$state_dir/shell-$compositor.previous
+	pending_file=$state_dir/shell-$compositor.pending
+}
+
+is_known_shell() {
+	case " $KNOWN_SHELLS " in
+	*" $1 "*) return 0 ;;
+	esac
+	return 1
+}
+
+shell_installed() {
+	case "$1" in
+	quickshell-d77 | utumno)
+		[ -d "/usr/share/quickshell/$1" ] && command -v qsd77 >/dev/null 2>&1
+		;;
+	fabric-d77) command -v fabric-d77 >/dev/null 2>&1 ;;
+	helium-d77) command -v helium-shell >/dev/null 2>&1 && command -v helium-osd >/dev/null 2>&1 ;;
+	*) return 1 ;;
+	esac
+}
+
+launch_shell() {
+	log_dir=${XDG_CACHE_HOME:-$HOME/.cache}/kantele
+	mkdir -p "$log_dir"
+	log=$log_dir/shell.log
+	case "$1" in
+	quickshell-d77 | utumno)
+		setsid qsd77 run -c "$1" >>"$log" 2>&1 </dev/null &
+		;;
+	fabric-d77)
+		setsid fabric-d77 >>"$log" 2>&1 </dev/null &
+		;;
+	helium-d77)
+		setsid helium-shell >>"$log" 2>&1 </dev/null &
+		setsid helium-osd >>"$log" 2>&1 </dev/null &
+		# Not part of the health check: without it nothing breaks, but clearing
+		# the wallpaper would show nothing.
+		if command -v helium-backdrop >/dev/null 2>&1; then
+			setsid helium-backdrop >>"$log" 2>&1 </dev/null &
+		fi
+		;;
+	esac
+}
+
+shell_healthy() {
+	case "$1" in
+	quickshell-d77 | utumno)
+		[ -n "$(qs_pids "$1")" ] &&
+			XDG_CONFIG_DIRS=/usr/share:${XDG_CONFIG_DIRS:-/etc/xdg} qs -c "$1" ipc show >/dev/null 2>&1
+		;;
+	fabric-d77) [ -n "$(fabric_pids)" ] ;;
+	helium-d77) [ -n "$(named_pids helium-shell)" ] && [ -n "$(named_pids helium-osd)" ] ;;
+	*) return 1 ;;
+	esac
+}
+
+verify_shell() {
+	# A shell that dies a moment after starting mustn't pass, so it has to stay
+	# healthy for a few checks in a row.
+	waited=0
+	stable=0
+	while [ "$waited" -lt "$VERIFY_SECONDS" ]; do
+		sleep 1
+		waited=$((waited + 1))
+		if shell_healthy "$1"; then
+			stable=$((stable + 1))
+			[ "$stable" -ge "$VERIFY_STABLE" ] && return 0
+		else
+			stable=0
+		fi
+	done
+	return 1
+}
+
+all_shell_pids() {
+	case "$1" in
+	quickshell-d77 | utumno) qs_pids "$1" ;;
+	fabric-d77) fabric_pids ;;
+	helium-d77)
+		named_pids helium-shell
+		named_pids helium-osd
+		named_pids helium-backdrop
+		;;
+	esac
+}
+
+stop_shell() {
+	pids=$(all_shell_pids "$1")
+	[ -n "$pids" ] || return 0
+	# shellcheck disable=SC2086 # one word per pid
+	kill $pids 2>/dev/null
+	waited=0
+	while [ "$waited" -lt 3 ] && [ -n "$(all_shell_pids "$1")" ]; do
+		sleep 1
+		waited=$((waited + 1))
+	done
+	pids=$(all_shell_pids "$1")
+	if [ -n "$pids" ]; then
+		# shellcheck disable=SC2086 # one word per pid
+		kill -9 $pids 2>/dev/null
+	fi
+	return 0
+}
+
+session_locked() {
+	for locker in amorphis swaylock hyprlock; do
+		[ -n "$(named_pids "$locker")" ] && return 0
+	done
+	[ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null 2>&1 &&
+		loginctl show-session "$XDG_SESSION_ID" -p LockedHint 2>/dev/null | grep -qx 'LockedHint=yes'
+}
+
+configure_compositor() {
+	# Adds or removes the autostart entry and handles the built-in bar, in
+	# kantele.lua. Nothing here is worth stopping for: the shell itself is running.
+	if ! command -v kantele >/dev/null 2>&1 || ! kantele shell-setup --wm "$compositor" "$@" >/dev/null 2>&1; then
+		warn "couldn't update the $compositor settings ($*)"
+	fi
+}
+
+read_first_line() {
+	if [ -r "$1" ]; then
+		IFS= read -r line <"$1" || [ -n "$line" ]
+		echo "$line"
+	fi
+}
+
+cmd_status() {
+	compositor_or_usage
+	echo "compositor=$compositor"
+	echo "running=$(running_shell)"
+	echo "chosen=$(read_first_line "$choice_file")"
+	echo "previous=$(read_first_line "$previous_file")"
+	echo "pending=$([ -e "$pending_file" ] && echo yes || echo no)"
+}
+
+cmd_stop() {
+	compositor_or_usage
+	current=$(running_shell)
+	[ -z "$current" ] || stop_shell "$current"
+}
+
+cmd_start() {
+	compositor_or_usage
+	chosen=$(read_first_line "$choice_file")
+	# Nothing chosen in Kantele: the compositor keeps whatever it came with.
+	[ -n "$chosen" ] || return 0
+	if [ -n "$(running_shell)" ]; then
+		return 0
+	fi
+	if is_known_shell "$chosen" && shell_installed "$chosen"; then
+		launch_shell "$chosen"
+		verify_shell "$chosen" && return 0
+		stop_shell "$chosen"
+	fi
+
+	previous=$(read_first_line "$previous_file")
+	if [ -n "$previous" ] && [ "$previous" != none ] && is_known_shell "$previous" && shell_installed "$previous"; then
+		warn "$chosen did not start, using $previous" critical
+		launch_shell "$previous"
+		verify_shell "$previous" && return 0
+		stop_shell "$previous"
+	fi
+
+	warn "no shell could start, turning on the built-in bar" critical
+	configure_compositor --bar on
+	return 1
+}
+
+cmd_switch() {
+	compositor_or_usage
+	new=$1
+	if ! is_known_shell "$new"; then
+		warn "unknown shell '$new' (known: $KNOWN_SHELLS)"
+		return 2
+	fi
+	if ! shell_installed "$new"; then
+		warn "$new is not installed"
+		return 1
+	fi
+	if session_locked; then
+		warn "the session is locked, not changing shell"
+		return 1
+	fi
+	mkdir -p "$state_dir"
+	current=$(running_shell)
+	if [ "$current" != "$new" ]; then
+		[ -z "$current" ] || stop_shell "$current"
+		launch_shell "$new"
+		if ! verify_shell "$new"; then
+			stop_shell "$new"
+			warn "$new did not start, staying with ${current:-no shell}" critical
+			if [ -n "$current" ]; then
+				launch_shell "$current"
+				verify_shell "$current" || warn "$current did not come back" critical
+			fi
+			return 1
+		fi
+		echo "${current:-none}" >"$previous_file"
+	fi
+	echo "$new" >"$choice_file"
+	configure_compositor --autostart on --bar off
+
+	if [ "$current" != "$new" ]; then
+		# The revert runs apart from everything else, so it survives the shell and
+		# Kantele itself dying.
+		token=$$-$(date +%s)
+		echo "$token" >"$pending_file"
+		setsid sh "$0" _revert "$token" >/dev/null 2>&1 </dev/null &
+		echo "kantele-shell: switched to $new, going back in ${KEEP_SECONDS}s unless you run: kantele-shell keep"
+	fi
+}
+
+cmd_keep() {
+	compositor_or_usage
+	rm -f "$pending_file"
+}
+
+cmd_restore() {
+	compositor_or_usage
+	rm -f "$pending_file"
+	previous=$(read_first_line "$previous_file")
+	if [ -z "$previous" ]; then
+		warn "no previous shell to go back to"
+		return 1
+	fi
+	if session_locked; then
+		warn "the session is locked, not changing shell"
+		return 1
+	fi
+	current=$(running_shell)
+	[ -z "$current" ] || stop_shell "$current"
+	if [ "$previous" = none ]; then
+		rm -f "$choice_file" "$previous_file"
+		configure_compositor --autostart off --bar default
+		return 0
+	fi
+	launch_shell "$previous"
+	if ! verify_shell "$previous"; then
+		stop_shell "$previous"
+		warn "$previous did not start, turning on the built-in bar" critical
+		configure_compositor --bar on
+		return 1
+	fi
+	echo "$previous" >"$choice_file"
+	echo "${current:-none}" >"$previous_file"
+}
+
+cmd_revert() {
+	compositor_or_usage
+	sleep "$KEEP_SECONDS"
+	# Only if this same switch is still unconfirmed.
+	[ "$(read_first_line "$pending_file")" = "$1" ] || return 0
+	warn "shell not confirmed, going back" critical
+	cmd_restore
+}
+
+case "${1:-}" in
+reset)
 	[ "$#" -le 2 ] || usage
 	reset_keys "${2:-}"
 	exit
-fi
+	;;
+status | start | stop | keep | restore)
+	[ "$#" -eq 1 ] || usage
+	"cmd_$1"
+	exit
+	;;
+switch)
+	[ "$#" -eq 2 ] || usage
+	cmd_switch "$2"
+	exit
+	;;
+_revert)
+	[ "$#" -eq 2 ] || usage
+	cmd_revert "$2"
+	exit
+	;;
+esac
 
 [ "$#" -eq 1 ] || usage
 verb=$1

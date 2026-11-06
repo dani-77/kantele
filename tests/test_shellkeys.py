@@ -28,7 +28,7 @@ SPITFIRE_CONFIG = """\
 spitfire.bind("Mod4", "t", function() spitfire.layout.set("tile") end)
 spitfire.bind("Mod4", "a", function() spitfire.spawn("mine") end)
 """
-EXPECTED_VERBS = {"launcher", "lock", "dashboard", "session", "wallpaper", "ai"}
+EXPECTED_VERBS = {"launcher", "lock", "dashboard", "session", "wallpaper", "ai", "restore"}
 
 
 @unittest.skipUnless(shutil.which(wasp.LUA), "needs lua5.4")
@@ -200,6 +200,58 @@ class ShellKeysTest(unittest.TestCase):
         self.assertTrue(asked)
         self.assertEqual(code, 0)
         self.assertEqual(self.live("wasp", "config.lua").read_text(), original)
+
+    def test_restore_key_has_shift_on_both(self):
+        for wm, combo in (("wasp", "super+shift+z"), ("spitfire", "Mod4+Shift+z")):
+            shellkeys.apply(wm)
+            commands = {b.combo: b.arg for b in self.binds(wm)}
+            self.assertEqual(commands[combo], "kantele-shell restore")
+
+    def test_wasp_autostart_is_added_to_config_lua_entries(self):
+        self.live("wasp", "config.lua").write_text(
+            WASP_CONFIG + 'wasp.autostart = { { "dunst" } }\n')
+        shellkeys.setup("wasp", autostart="on")
+        effective = wasp._run_lua(self.live("wasp", "config.lua"), skip=False)
+        self.assertEqual(effective["autostart"], [["dunst"], ["kantele-shell", "start"]])
+
+        shellkeys.setup("wasp", autostart="off")
+        effective = wasp._run_lua(self.live("wasp", "config.lua"), skip=False)
+        self.assertEqual(effective["autostart"], [["dunst"]])
+
+    def test_wasp_autostart_without_a_list_in_config_lua(self):
+        shellkeys.setup("wasp", autostart="on")
+        effective = wasp._run_lua(self.live("wasp", "config.lua"), skip=False)
+        self.assertEqual(effective["autostart"], [["kantele-shell", "start"]])
+
+    def test_spitfire_autostart_is_in_the_generated_file(self):
+        shellkeys.setup("spitfire", autostart="on")
+        self.assertTrue(spitfire.Config().read().shell_autostart)
+        self.assertIn('spitfire.autostart({ "kantele-shell start" })',
+                      self.live("spitfire", "kantele.lua").read_text())
+
+    def test_autostart_survives_later_saves(self):
+        for wm in shellkeys.BACKENDS:
+            backend = shellkeys.BACKENDS[wm][0]
+            shellkeys.setup(wm, autostart="on")
+            config = backend.Config()
+            config.save(config.read())
+            self.assertTrue(backend.Config().read().shell_autostart)
+
+    def test_bar_on_off_and_back_to_config_lua(self):
+        self.live("wasp", "config.lua").write_text(
+            WASP_CONFIG + "wasp.bar = { enable = true }\n")
+        path = ("bar", "enable")
+        shellkeys.setup("wasp", bar="off")
+        self.assertIs(wasp.Config().read().values[path], False)
+        shellkeys.setup("wasp", bar="default")
+        self.assertIs(wasp.Config().read().values[path], True)
+        self.assertNotIn("bar", wasp.render_overrides(wasp.Config().read()).split("local keys")[0])
+
+    def test_setup_keeps_the_keys(self):
+        shellkeys.apply("spitfire")
+        before = {b.combo for b in self.binds("spitfire")}
+        shellkeys.setup("spitfire", autostart="on", bar="off")
+        self.assertEqual({b.combo for b in self.binds("spitfire")}, before)
 
     def test_reset_without_a_backup_warns(self):
         result = self.reset("wasp")

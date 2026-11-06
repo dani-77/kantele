@@ -32,6 +32,7 @@ KEYS = {
     "x": "session",
     "y": "wallpaper",
     "a": "ai",
+    "shift+z": "restore",  # the way out of a shell that came up broken
 }
 
 BACKENDS = {
@@ -105,6 +106,43 @@ def apply(wm: str) -> list[str]:
     messages.append(f"Added {len(added)} keys." if added else "Nothing to add.")
     messages.append(backend.reload_running())
     return messages
+
+
+def setup(wm: str, autostart: str | None = None, bar: str | None = None) -> list[str]:
+    """Changes what `kantele-shell` needs from kantele.lua: whether it adds
+    `kantele-shell start` to the autostart, and the built-in bar ("on", "off", or
+    "default" for config.lua's value)."""
+    backend = BACKENDS[wm][0]
+    config = backend.Config()
+    settings = config.read()
+    if autostart is not None:
+        settings.shell_autostart = autostart == "on"
+    if bar is not None:
+        path = ("bar", "enable")
+        settings.values[path] = settings.base[path] if bar == "default" else bar == "on"
+    errors = backend.validate(settings)
+    if errors:
+        raise LuaError("\n".join(errors))
+    config.save(settings)
+    return [backend.reload_running()]
+
+
+def setup_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="kantele shell-setup",
+        description="Change the autostart entry and built-in bar for kantele-shell.",
+    )
+    parser.add_argument("--wm", choices=sorted(BACKENDS), required=True)
+    parser.add_argument("--autostart", choices=("on", "off"))
+    parser.add_argument("--bar", choices=("on", "off", "default"))
+    args = parser.parse_args(argv)
+    try:
+        messages = setup(args.wm, args.autostart, args.bar)
+    except (LuaError, OSError) as error:
+        print(f"kantele shell-setup: {error}", file=sys.stderr)
+        return 1
+    print("\n".join(messages))
+    return 0
 
 
 def main(argv: list[str]) -> int:
