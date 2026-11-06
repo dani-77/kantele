@@ -112,7 +112,9 @@ also works for a compositor you aren't running. If `config.lua` starts a shell b
 itself, the tab warns you: remove that entry, as Kantele doesn't edit the file.
 
 `kantele shell-keys` gives both compositors the same keys for shell actions, and
-`kantele-shell reset` undoes it. See [doc/shell-keys.md](doc/shell-keys.md).
+`kantele-shell reset` undoes it. See [doc/shell-keys.md](doc/shell-keys.md). For how
+this came together, and how to add a shell or compositor, see
+[doc/shells-plan.md](doc/shells-plan.md).
 
 From a terminal, `kantele-shell` has `status`, `switch <shell>`, `keep`, `restore`,
 `start` and `stop`. `Super+Shift+Z` also goes back to the previous shell.
