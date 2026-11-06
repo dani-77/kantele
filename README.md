@@ -93,12 +93,20 @@ Pages: **Windows** (borders, gaps, snap, focus follows mouse, output scale),
 **Bar**, **Keyboard**, **Effects** (animation, blur) and **Keybindings**.
 **Save and apply** runs `spitfirectl reload`.
 
+## Shell keys
+
+`kantele shell-keys` gives wasp and spitfire the same keys for shell actions
+(launcher, lock, session menu, wallpaper, chat, dashboard), whichever d77 shell
+is running. `kantele-shell reset` undoes it. See
+[doc/shell-keys.md](doc/shell-keys.md).
+
 ## Usage
 
 ```
 kantele                 # configure the running WM
 kantele --wm wmd77      # pick one explicitly
 kantele --config FILE   # edit another file (e.g. for testing)
+kantele shell-keys      # add the common shell keys (wasp, spitfire)
 ```
 
 ## Install

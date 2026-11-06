@@ -3,6 +3,10 @@
 # so compositor keybindings don't depend on a specific shell.
 #
 #   kantele-shell <launcher|wallpaper|lock|session|dashboard|ai>
+#   kantele-shell reset [wasp|spitfire]
+#
+# reset undoes `kantele shell-keys`: it restores the compositor's files from
+# before the keys were added, and reloads it.
 #
 # The active shell is the name in $XDG_CONFIG_HOME/kantele/shell if that file
 # exists, otherwise the one found running. This is plain sh because it runs on
@@ -19,6 +23,7 @@ warn() {
 
 usage() {
 	echo "usage: kantele-shell <launcher|wallpaper|lock|session|dashboard|ai>" >&2
+	echo "       kantele-shell reset [wasp|spitfire]" >&2
 	exit 2
 }
 
@@ -145,6 +150,100 @@ run_helium_lock() {
 no_equivalent() {
 	warn "$1 has no $verb"
 }
+
+same_file() {
+	# Two missing files count as the same: the file didn't exist either time.
+	if [ -e "$1" ] || [ -e "$2" ]; then
+		cmp -s "$1" "$2"
+	fi
+}
+
+confirm_on_tty() {
+	# Run from a keybinding there is no terminal to ask on, so refuse.
+	if ! (: </dev/tty) 2>/dev/null; then
+		return 1
+	fi
+	printf '%s [y/N] ' "$1" >/dev/tty
+	IFS= read -r answer </dev/tty || return 1
+	case "$answer" in
+	y | Y | s | S) return 0 ;;
+	esac
+	return 1
+}
+
+reload_compositor() {
+	case "$1" in
+	wasp)
+		pids=$(pgrep -x wasp 2>/dev/null) || return 0
+		for pid in $pids; do
+			# Without a SIGHUP handler (wasp older than 0.10.1), the signal would
+			# end the session.
+			mask=$(sed -n 's/^SigCgt:[[:space:]]*//p' "/proc/$pid/status" 2>/dev/null)
+			case "$mask" in
+			*[13579bdfBDF]) ;;
+			*)
+				warn "this wasp can't reload on request: press mod+shift+r"
+				return 0
+				;;
+			esac
+		done
+		pkill -HUP -x wasp
+		;;
+	spitfire)
+		if pgrep -x spitfire >/dev/null 2>&1; then
+			spitfirectl reload >/dev/null 2>&1 || warn "spitfirectl reload failed: press Mod4+Shift+R"
+		fi
+		;;
+	esac
+}
+
+reset_keys() {
+	compositor=${1:-${XDG_CURRENT_DESKTOP:-}}
+	case "$compositor" in
+	wasp | spitfire) ;;
+	*) usage ;;
+	esac
+
+	config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+	backup=$config_home/kantele/pre-shell/$compositor
+	applied=$config_home/kantele/applied/$compositor
+	live=$config_home/$compositor
+	if [ ! -d "$backup" ]; then
+		warn "no backup for $compositor: kantele shell-keys was never run here"
+		return 1
+	fi
+
+	changed=""
+	for name in config.lua kantele.lua; do
+		if ! same_file "$live/$name" "$applied/$name" && ! same_file "$live/$name" "$backup/$name"; then
+			changed="$changed $name"
+		fi
+	done
+	if [ -n "$changed" ] && ! confirm_on_tty "Changed since the keys were added:$changed. Replace them?"; then
+		warn "reset cancelled, changed since the keys were added:$changed"
+		return 1
+	fi
+
+	for name in config.lua kantele.lua; do
+		if [ -e "$backup/$name" ]; then
+			cp -p "$backup/$name" "$live/$name.kantele-tmp" || return 1
+			mv "$live/$name.kantele-tmp" "$live/$name" || return 1
+		else
+			rm -f "$live/$name"
+		fi
+	done
+	# The live files now match the backup. The next shell-keys takes a fresh one,
+	# so it can't later undo changes made after this reset.
+	rm -rf "$backup" "$applied"
+	reload_compositor "$compositor"
+	echo "kantele-shell: restored the $compositor files from before the keys were added"
+}
+
+if [ "${1:-}" = reset ]; then
+	[ "$#" -le 2 ] || usage
+	reset_keys "${2:-}"
+	exit
+fi
 
 [ "$#" -eq 1 ] || usage
 verb=$1
