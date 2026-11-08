@@ -155,8 +155,26 @@ Known limits:
 
 Ideas:
 
-- **sway support** in Kantele.
-- **`kantele-shell` on X11** for the lock and the launcher (pwm, wmd77). The four shells
-  are Wayland-only, so the verbs would point elsewhere: `amorphis --backend x11`, and
-  `d77run` or `rofi`.
+- **sway support** in Kantele. sway's config isn't Lua either, but it has `include`, so
+  Kantele can own a file of its own, included by one line in `config`, the same way it
+  owns `kantele.lua` on wasp and spitfire. Check first how sway handles a key bound twice.
+- **`kantele-shell` on X11** for the lock and the launcher (pwm, wmd77), with the same
+  keys as on Wayland. The four shells are Wayland-only, so the verbs would point
+  elsewhere: `amorphis --backend x11`, and `d77run` or `rofi`. No `session` verb: both
+  window managers have their own exit menu, built on `dmenu`.
+- **Keyboard layout and touchpad for pwm and wmd77.** On X11 the layout comes from the
+  X server (`/etc/X11/xorg.conf.d/`), and neither window manager reads one from its
+  `config.toml`, so Kantele has nothing to show. The idea: optional `[keyboard]` and
+  `[touchpad]` sections, applied at startup and on reload with `setxkbmap` and `xinput`.
+  Left empty, the window manager doesn't touch either. Their default `startup.sh` uses
+  `synclient`, which only works with the synaptics driver, so check the driver first.
+  On hold while other projects depend on pwm as it is.
 - A bar on every monitor for the shells that have one.
+
+Ruled out:
+
+- **niri in Kantele.** The four shells already run on niri, and its config supports
+  `include optional=true`, so Kantele could own a file there too. But niri refuses a
+  config with a key bound twice, across included files too, and falls back to its
+  stock behavior, dropping every change the user made. One wrong guess about which keys
+  are taken would cost the whole config, and the shells don't need Kantele to run there.
