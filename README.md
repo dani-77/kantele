@@ -31,8 +31,10 @@ keeps a copy next to it as `config.toml.kantele-bak`.
 Pages: **Theme** (active theme, your own palettes with a live bar preview),
 **Applications**, **Workspaces** (window class → workspace rules),
 **Floating** (classes that float, and their size), **Bar** (widgets and their
-order) and **Keybindings** (your overrides, with a key recorder, next to
-pwm's built-in keymap).
+order), **Keyboard** (XKB layout, variant, model and options, and key repeat
+delay and rate - the same settings as wasp and spitfire; needs pwm 0.6.9 /
+wmd77 0.5.2, older releases ignore them) and **Keybindings** (your
+overrides, with a key recorder, next to pwm's built-in keymap).
 
 **Save and apply** asks the running pwm to reload by sending it `SIGHUP`,
 which pwm 0.6.5 and newer handle as an in-place restart (your windows stay

@@ -27,6 +27,11 @@ widgets = [
 key = "M-r"
 action = "spawn"
 arg = "d77run"
+
+[keyboard]
+layout = "pt"  # home
+options = ["caps:escape", "compose:ralt"]
+repeat_rate = 40
 """
 
 
@@ -46,6 +51,8 @@ class PwmBackendTest(unittest.TestCase):
         self.assertEqual(s.bar_widgets, ["workspaces", "clock"])
         self.assertEqual(s.binds, [pwm.Bind("M-r", "spawn", "d77run")])
         self.assertEqual(s.float_rules, [pwm.FloatRule("d77run", 0.4, None)])
+        self.assertEqual(s.keyboard, {"layout": "pt", "options": "caps:escape,compose:ralt",
+                                      "repeat_rate": 40})
 
     def test_noop_save_is_byte_identical(self):
         c = pwm.Config(self.path)
@@ -70,6 +77,26 @@ class PwmBackendTest(unittest.TestCase):
         self.assertNotIn("float_rule", t)
         self.assertEqual(backup.read_text(), SAMPLE)
 
+    def test_keyboard_edit(self):
+        c = pwm.Config(self.path)
+        s = c.read()
+        s.keyboard["options"] = "caps:escape"
+        s.keyboard["repeat_delay"] = 300
+        del s.keyboard["repeat_rate"]
+        c.apply(s)
+        c.save()
+        text = self.path.read_text()
+        self.assertIn("# home", text)
+        kb = tomllib.loads(text)["keyboard"]
+        self.assertEqual(kb, {"layout": "pt", "options": "caps:escape", "repeat_delay": 300})
+
+    def test_no_keyboard_section_added_on_noop(self):
+        self.path.write_text("[theme]\nactive = \"d77\"\n")
+        c = pwm.Config(self.path)
+        c.apply(c.read())
+        c.save()
+        self.assertNotIn("keyboard", self.path.read_text())
+
     def test_backup_only_once(self):
         c = pwm.Config(self.path)
         self.assertIsNotNone(c.save())
@@ -85,11 +112,13 @@ class PwmBackendTest(unittest.TestCase):
             float_rules=[pwm.FloatRule("x", 1.5)],
             bar_widgets=["clock", "weather"],
             binds=[pwm.Bind("Mod4+x", "spawn"), pwm.Bind("M-a", "inc_main", "x"),
-                   pwm.Bind("M-b", "toggle_scratchpad"), pwm.Bind("M-b", "toggle_scratchpad")])
+                   pwm.Bind("M-b", "toggle_scratchpad"), pwm.Bind("M-b", "toggle_scratchpad")],
+            keyboard={"layout": "pt us", "repeat_rate": 0})
         errs = "\n".join(pwm.validate(bad))
         for needle in ("'nope'", "empty class", "1-9", "between 0 and 1", "'weather'",
                        "penrose format", "needs a command", "whole number",
-                       "more than once", "only be bound to one key"):
+                       "more than once", "only be bound to one key",
+                       "has spaces", "repeat rate must be"):
             self.assertIn(needle, errs)
 
 

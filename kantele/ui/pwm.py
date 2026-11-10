@@ -369,6 +369,62 @@ class Wmd77BarTab(QWidget):
         s.bar = b
 
 
+class KeyboardTab(QWidget):
+    """[keyboard]: XKB layout/variant/model/options and key repeat, the same
+    settings wasp and spitfire have."""
+
+    LABELS = {"layout": "Layout (e.g. us, pt)", "variant": "Variant",
+              "model": "Model (e.g. pc105)", "options": "Options (e.g. caps:escape)",
+              "repeat_delay": "Repeat delay (ms)", "repeat_rate": "Repeat rate (per second)"}
+
+    def __init__(self, flavor: pwm.Flavor):
+        super().__init__()
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+        self.edits: dict[str, QLineEdit] = {}
+        for k in pwm.KEYBOARD_STR:
+            e = QLineEdit()
+            e.setPlaceholderText("unchanged")
+            self.edits[k] = e
+            form.addRow(self.LABELS[k] + ":", e)
+        self.spins: dict[str, QSpinBox] = {}
+        for k, (lo, hi) in pwm.KEYBOARD_LIMITS.items():
+            sp = QSpinBox()
+            sp.setRange(lo - 1, hi)       # lo - 1 = "unchanged", i.e. leave the key out
+            sp.setSpecialValueText("unchanged")
+            self.spins[k] = sp
+            form.addRow(self.LABELS[k] + ":", sp)
+        lay.addLayout(form)
+        lay.addWidget(_note(
+            f"Empty fields leave the keyboard as the X server set it up; {flavor.name} only "
+            "runs setxkbmap / xset r rate for what you fill in. Several layouts (with one "
+            "variant each) and several options are separated by commas, e.g. pt,us and "
+            "grp:alt_shift_toggle,caps:escape. Setting only one of the repeat values uses "
+            "the X default for the other (660 ms, 25 per second)."))
+        lay.addStretch()
+
+    def load(self, s: pwm.Settings) -> None:
+        kb = s.keyboard
+        for k, e in self.edits.items():
+            e.setText(str(kb.get(k, "")))
+        for k, sp in self.spins.items():
+            v = kb.get(k)
+            sp.setValue(v if isinstance(v, int) else sp.minimum())
+
+    def store(self, s: pwm.Settings) -> None:
+        kb: dict[str, object] = {}
+        for k, e in self.edits.items():
+            # "pt, us" -> "pt,us": what setxkbmap expects. Empty items stay
+            # (",nodeadkeys" is the second layout's variant).
+            v = ",".join(p.strip() for p in e.text().split(","))
+            if v.strip(","):
+                kb[k] = v
+        for k, sp in self.spins.items():
+            if sp.value() != sp.minimum():
+                kb[k] = sp.value()
+        s.keyboard = kb
+
+
 class KeysTab(QWidget):
     def __init__(self, flavor: pwm.Flavor):
         super().__init__()
@@ -487,7 +543,7 @@ class PwmPage(QWidget):
             ("Theme", ThemeTab()), ("Applications", AppsTab(fl)),
             ("Workspaces", WindowRulesTab(fl)), ("Floating", FloatRulesTab()),
             ("Bar", BarTab() if fl.bar == "widgets" else Wmd77BarTab()),
-            ("Keybindings", KeysTab(fl)),
+            ("Keyboard", KeyboardTab(fl)), ("Keybindings", KeysTab(fl)),
         ]
         for name, w in self.parts:
             self.tabs.addTab(w, name)

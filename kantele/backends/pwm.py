@@ -134,6 +134,13 @@ WMD77_BAR = {
 }
 WMD77_BAR_LIMITS = {"height": (8, 200), "font_size": (4, 72), "reserve_top": (0, 500)}
 
+# [keyboard] (pwm 0.6.9+, wmd77 0.5.2+): the same keys as wasp's and
+# spitfire's keyboard table. A missing key means "leave the X server's setting
+# alone", not a default value. options may also be a TOML list in the file.
+KEYBOARD_STR = ("layout", "variant", "model", "options")
+KEYBOARD_LIMITS = {"repeat_delay": (1, 10000), "repeat_rate": (1, 255)}
+KEYBOARD = (*KEYBOARD_STR, *KEYBOARD_LIMITS)
+
 
 @dataclass(frozen=True)
 class Flavor:
@@ -185,6 +192,9 @@ class Settings:
     # wmd77's [bar] keys that are set (see WMD77_BAR); missing = wmd77 default
     bar: dict[str, object] = field(default_factory=dict)
     binds: list[Bind] = field(default_factory=list)
+    # [keyboard] keys that are set (see KEYBOARD); options as one
+    # comma-separated string, whichever form the file uses
+    keyboard: dict[str, object] = field(default_factory=dict)
 
 
 class Config:
@@ -224,6 +234,10 @@ class Config:
         s.binds = [Bind(str(b.get("key", "")), str(b.get("action", "")),
                         str(b["arg"]) if "arg" in b else None)
                    for b in d.get("bind", [])]
+        kb = d.get("keyboard", {})
+        s.keyboard = {k: _plain(kb[k]) for k in KEYBOARD if k in kb}
+        if isinstance(s.keyboard.get("options"), list):
+            s.keyboard["options"] = ",".join(str(o) for o in s.keyboard["options"])
         return s
 
     # ── writing ──────────────────────────────────────────────────────────
@@ -233,7 +247,7 @@ class Config:
         d = self.doc
         # Tables this save had to create; dropped again below if they stay
         # empty, so a no-op save doesn't add bare [apps]/[bar] headers.
-        missing = [n for n in ("theme", "apps", "bar") if not isinstance(d.get(n), Table)]
+        missing = [n for n in ("theme", "apps", "bar", "keyboard") if not isinstance(d.get(n), Table)]
 
         theme = _table(d, "theme")
         _set(theme, "active", s.theme)
@@ -264,6 +278,15 @@ class Config:
         else:
             for k in WMD77_BAR:
                 _set(bar, k, s.bar.get(k))
+
+        kb = _table(d, "keyboard")
+        for k in KEYBOARD:
+            v = s.keyboard.get(k)
+            # a list in the file that still says the same thing stays a list
+            if (k == "options" and isinstance(kb.get(k), list) and isinstance(v, str)
+                    and _options(v) == [str(o).strip() for o in kb[k]]):
+                continue
+            _set(kb, k, v)
 
         for n in missing:
             if not d[n]:
@@ -324,6 +347,13 @@ def validate(s: Settings, flavor: Flavor = PWM) -> list[str]:
             lo, hi = WMD77_BAR_LIMITS[k]
             if not isinstance(v, int) or not lo <= v <= hi:
                 errs.append(f"Bar {k.replace('_', ' ')} must be between {lo} and {hi}.")
+    for k, v in s.keyboard.items():
+        if k in KEYBOARD_LIMITS:
+            lo, hi = KEYBOARD_LIMITS[k]
+            if not isinstance(v, int) or not lo <= v <= hi:
+                errs.append(f"Keyboard {k.replace('_', ' ')} must be between {lo} and {hi}.")
+        elif k in KEYBOARD_STR and isinstance(v, str) and re.search(r"\s", v):
+            errs.append(f"Keyboard {k} '{v}' has spaces; separate several with commas.")
     if s.bar_widgets is not None:
         for w in s.bar_widgets:
             if w not in BAR_WIDGETS:
@@ -361,6 +391,10 @@ def reload_running(flavor: Flavor = PWM) -> str:
         return (f"Saved. This {n} can't reload on request (needs {n} {flavor.reload_since} "
                 "or newer): press Super+Shift+R to apply.")
     return "Saved and applied."
+
+
+def _options(v: str) -> list[str]:
+    return [o.strip() for o in v.split(",") if o.strip()]
 
 
 # ── tomlkit helpers ──────────────────────────────────────────────────────
