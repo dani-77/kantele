@@ -1,3 +1,3 @@
 """Kantele: tune your window manager, string by string."""
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
