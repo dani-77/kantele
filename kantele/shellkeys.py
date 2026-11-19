@@ -105,7 +105,13 @@ def apply(wm: str) -> list[str]:
             if combo in base:
                 messages.append(f"{combo}: replaces the binding from config.lua.")
         elif current.action != "spawn" or current.arg != command:
-            messages.append(f"{combo}: kept your own Kantele binding, not {verb}.")
+            if getattr(backend, "SHELL_KEYS_REPLACE", False):
+                was = " ".join(p for p in (current.action, current.arg) if p)
+                current.action, current.arg = "spawn", command
+                added.append(combo)
+                messages.append(f"{combo}: replaces '{was}'.")
+            else:
+                messages.append(f"{combo}: kept your own Kantele binding, not {verb}.")
 
     errors = backend.validate(settings)
     if errors:

@@ -168,9 +168,11 @@ class WhiplashShellKeysTest(unittest.TestCase):
         binds = {b.combo: (b.action, b.arg) for b in wl.Config(self.path).read().binds}
         self.assertEqual(binds["Super+p"], ("spawn", "kantele-shell launcher"))
         self.assertEqual(binds["Super+Shift+z"], ("spawn", "kantele-shell restore"))
-        self.assertEqual(binds["Super+x"], ("spawn", "qsd77 -c utumno session"))
+        # whiplash keeps every binding in config.toml, so the shell keys
+        # replace what the file had there (it was backed up first).
+        self.assertEqual(binds["Super+x"], ("spawn", "kantele-shell session"))
         self.assertEqual(binds["Mod+p"], ("spawn", "wmenu-run"))
-        self.assertIn("Super+x: kept your own Kantele binding, not session.", messages)
+        self.assertIn("Super+x: replaces 'spawn qsd77 -c utumno session'.", messages)
         backup = self.config_home / "kantele" / "pre-shell" / "whiplash" / "config.toml"
         self.assertEqual(backup.read_text(), SAMPLE)
 
@@ -178,9 +180,9 @@ class WhiplashShellKeysTest(unittest.TestCase):
         self.path.write_text("gaps = 4\n")
         shellkeys.apply("whiplash")
         binds = wl.Config(self.path).read().binds
-        # Super+a/x/y are whiplash's own keys already, so only p, z, n and
-        # Shift+z are added.
+        # Super+a/x/y are replaced in place; p, z, n and Shift+z are new.
         self.assertEqual(len(binds), len(wl.DEFAULT_BINDS) + 4)
+        self.assertIn(wl.Bind("Super+a", "spawn", "kantele-shell ai"), binds)
         self.assertIn(wl.Bind("Mod+j", "focus-down"), binds)
 
     def test_setup_toggles_the_autostart_only(self):

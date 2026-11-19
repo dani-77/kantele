@@ -38,6 +38,10 @@ EXAMPLE = Path("/usr/share/whiplash/config.toml")
 SHELL_FILES = ("config.toml",)
 # whiplash has no bar of its own for kantele-shell to turn on or off.
 HAS_BAR = False
+# Every binding lives in config.toml, so there is no "Kantele's own" key to
+# protect: `kantele shell-keys` replaces whatever the file binds to its keys
+# (as it overrides config.lua's on wasp), says so, and backs the file up first.
+SHELL_KEYS_REPLACE = True
 SHELL_START = "kantele-shell start"
 
 LAYOUTS = ("tall", "wide", "full")
