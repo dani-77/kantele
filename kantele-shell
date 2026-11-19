@@ -3,7 +3,7 @@
 # so compositor keybindings don't depend on a specific shell.
 #
 #   kantele-shell <launcher|wallpaper|lock|session|dashboard|ai>
-#   kantele-shell reset [wasp|spitfire]
+#   kantele-shell reset [wasp|spitfire|whiplash]
 #   kantele-shell start | stop | status | switch <shell> | keep | restore
 #
 # reset undoes `kantele shell-keys`: it restores the compositor's files from
@@ -28,7 +28,7 @@ warn() {
 
 usage() {
 	echo "usage: kantele-shell <launcher|wallpaper|lock|session|dashboard|ai>" >&2
-	echo "       kantele-shell reset [wasp|spitfire]" >&2
+	echo "       kantele-shell reset [wasp|spitfire|whiplash]" >&2
 	echo "       kantele-shell start | stop | status | switch <shell> | keep | restore" >&2
 	exit 2
 }
@@ -217,15 +217,27 @@ reload_compositor() {
 			spitfirectl reload >/dev/null 2>&1 || warn "spitfirectl reload failed: press Mod4+Shift+R"
 		fi
 		;;
+	whiplash)
+		# Nothing to do: whiplash reloads config.toml whenever it is written.
+		;;
+	esac
+}
+
+# The files `kantele shell-keys` backs up for a compositor.
+compositor_files() {
+	case "$1" in
+	whiplash) echo "config.toml" ;;
+	*) echo "config.lua kantele.lua" ;;
 	esac
 }
 
 reset_keys() {
 	compositor=${1:-${XDG_CURRENT_DESKTOP:-}}
 	case "$compositor" in
-	wasp | spitfire) ;;
+	wasp | spitfire | whiplash) ;;
 	*) usage ;;
 	esac
+	files=$(compositor_files "$compositor")
 
 	config_home=${XDG_CONFIG_HOME:-$HOME/.config}
 	backup=$config_home/kantele/pre-shell/$compositor
@@ -237,7 +249,7 @@ reset_keys() {
 	fi
 
 	changed=""
-	for name in config.lua kantele.lua; do
+	for name in $files; do
 		if ! same_file "$live/$name" "$applied/$name" && ! same_file "$live/$name" "$backup/$name"; then
 			changed="$changed $name"
 		fi
@@ -247,7 +259,7 @@ reset_keys() {
 		return 1
 	fi
 
-	for name in config.lua kantele.lua; do
+	for name in $files; do
 		if [ -e "$backup/$name" ]; then
 			cp -p "$backup/$name" "$live/$name.kantele-tmp" || return 1
 			mv "$live/$name.kantele-tmp" "$live/$name" || return 1
@@ -268,9 +280,9 @@ VERIFY_STABLE=3
 
 compositor_or_usage() {
 	case "${XDG_CURRENT_DESKTOP:-}" in
-	wasp | spitfire) compositor=$XDG_CURRENT_DESKTOP ;;
+	wasp | spitfire | whiplash) compositor=$XDG_CURRENT_DESKTOP ;;
 	*)
-		echo "kantele-shell: this needs a running wasp or spitfire session" >&2
+		echo "kantele-shell: this needs a running wasp, spitfire or whiplash session" >&2
 		exit 2
 		;;
 	esac

@@ -18,6 +18,7 @@ setting at a time.
 | [wasp](https://github.com/dani-77/wasp) | `~/.config/wasp/config.lua` | supported |
 | [spitfire](https://github.com/dani-77/spitfire) | `~/.config/spitfire/config.lua` | supported |
 | [wmd77](https://github.com/d77void/wmd77) | `~/.config/wmd77/config.toml` | supported (wmd77 0.5.0+) |
+| [whiplash](https://github.com/dani-77/whiplash) | `~/.config/whiplash/config.toml` | supported (whiplash 0.2.0+) |
 
 ### pwm
 
@@ -95,9 +96,32 @@ Pages: **Windows** (borders, gaps, snap, focus follows mouse, output scale),
 **Bar**, **Keyboard**, **Effects** (animation, blur), **Keybindings** and **Shell**.
 **Save and apply** runs `spitfirectl reload`.
 
+### whiplash
+
+whiplash's config is TOML, like pwm's, so Kantele edits `config.toml` in place
+the same way: comments and layout stay, a save without changes leaves the file
+identical, and the first write keeps `config.toml.kantele-bak`. There is no
+side file: TOML can't include one.
+
+whiplash reloads `config.toml` by itself whenever it is written, so **Save**
+and **Save and apply** do the same. Before writing, Kantele checks everything
+with whiplash's own rules (keys, actions, colours, workspaces, touchpad
+ranges, rules, scratchpads, gestures), so a save never ends in whiplash's
+error notification.
+
+The **Keybindings** page shows the whole keymap: a `[keybinds]` table replaces
+whiplash's built-in keys, so the file always lists every active binding.
+Without that table the page shows the built-in keys, and the first change
+writes them all, never one key alone.
+
+Pages: **Windows** (terminal, mod key, gaps, workspaces, layouts, focus
+follows mouse, borders), **Keyboard**, **Touchpad**, **Rules** (app id →
+workspace, floating), **Scratchpads**, **Gestures**, **Monitors** (scale and
+position), **Keybindings** and **Shell**.
+
 ## Desktop shells
 
-On wasp and spitfire, the **Shell** tab picks which d77 shell runs:
+On wasp, spitfire and whiplash, the **Shell** tab picks which d77 shell runs:
 [quickshell-d77](https://github.com/dani-77/quickshell-d77),
 [Utumno](https://github.com/dani-77/utumno),
 [fabric-d77](https://github.com/dani-77/fabric-d77) or
@@ -124,7 +148,7 @@ From a terminal, `kantele-shell` has `status`, `switch <shell>`, `keep`, `restor
 ## Usage
 
 ```
-kantele                 # configure the running WM
+kantele                 # configure the running WM (says so if it isn't supported)
 kantele --wm wmd77      # pick one explicitly
 kantele --config FILE   # edit another file (e.g. for testing)
 kantele shell-keys      # add the common shell keys (wasp, spitfire)

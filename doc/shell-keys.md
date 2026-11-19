@@ -1,6 +1,7 @@
 # Shell keys
 
-The same keys do the same thing in wasp and spitfire, with any of the d77 shells.
+The same keys do the same thing in wasp, spitfire and whiplash, with any of the d77
+shells.
 Each key runs `kantele-shell <verb>`, which translates the verb for the shell that
 is running. The compositors' own keys, such as layouts and window focus, are not
 part of this: wasp keeps `Alt` as its mod key and spitfire keeps `Super`.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -16,8 +17,19 @@ from . import __version__
 from .backends import detect_running
 from .ui.pwm import PwmPage, Wmd77Page
 from .ui.luapage import SpitfirePage, WaspPage
+from .ui.whiplash import WhiplashPage
 
-PAGES = {"pwm": PwmPage, "spitfire": SpitfirePage, "wasp": WaspPage, "wmd77": Wmd77Page}
+PAGES = {"pwm": PwmPage, "spitfire": SpitfirePage, "wasp": WaspPage, "whiplash": WhiplashPage,
+         "wmd77": Wmd77Page}
+
+
+def pick_wm() -> str | None:
+    """The supported WM running for this user, or the session's desktop name."""
+    found = detect_running(PAGES)
+    if found:
+        return found
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+    return desktop if desktop in PAGES else None
 
 
 def app_icon() -> QIcon:
@@ -74,7 +86,14 @@ def main() -> None:
     ap.add_argument("--version", action="version", version=f"kantele {__version__}")
     args = ap.parse_args()
 
-    wm = args.wm or detect_running(PAGES) or "pwm"
+    wm = args.wm or pick_wm()
+    if wm is None:
+        # Never fall back to some other WM's config silently: editing a file the
+        # session doesn't use would look like settings that do nothing.
+        desktop = os.environ.get("XDG_CURRENT_DESKTOP") or "this session"
+        print(f"kantele: {desktop} isn't supported; pick one with --wm "
+              f"({', '.join(sorted(PAGES))}).", file=sys.stderr)
+        sys.exit(2)
     app = QApplication(sys.argv)
     app.setApplicationName("kantele")
     app.setDesktopFileName("kantele")

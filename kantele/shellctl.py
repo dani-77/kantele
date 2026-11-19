@@ -136,5 +136,6 @@ def config_starts_a_shell(path: Path) -> bool:
         lines = path.read_text().splitlines()
     except OSError:
         return False
-    code = (line.split("--", 1)[0] for line in lines)
+    comment = "#" if path.suffix == ".toml" else "--"
+    code = (line.split(comment, 1)[0] for line in lines)
     return any(_STARTS_SHELL.search(line) for line in code)

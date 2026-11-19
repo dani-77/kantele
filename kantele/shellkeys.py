@@ -21,7 +21,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .backends import detect_running, spitfire, wasp
+from .backends import detect_running, spitfire, wasp, whiplash
 from .backends.luautil import LuaError
 
 # key -> kantele-shell verb. Free in the example config.lua of both compositors.
@@ -38,8 +38,14 @@ KEYS = {
 BACKENDS = {
     "wasp": (wasp, "super+{}"),
     "spitfire": (spitfire, "Mod4+{}"),
+    "whiplash": (whiplash, "Super+{}"),
 }
 FILES = ("config.lua", "kantele.lua")
+
+
+def _files(backend) -> tuple[str, ...]:
+    """The files `shell-keys` backs up: whiplash keeps everything in config.toml."""
+    return getattr(backend, "SHELL_FILES", FILES)
 
 
 def kantele_dir() -> Path:
@@ -47,12 +53,12 @@ def kantele_dir() -> Path:
     return Path(base) / "kantele"
 
 
-def _copy_existing(src_dir: Path, dst: Path) -> None:
+def _copy_existing(src_dir: Path, dst: Path, files: tuple[str, ...] = FILES) -> None:
     """Copies FILES into a new dst, in one step, so dst is never left half done."""
     tmp = dst.with_name(dst.name + ".kantele-tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
-    for name in FILES:
+    for name in files:
         if (src_dir / name).exists():
             shutil.copy2(src_dir / name, tmp / name)
     shutil.rmtree(dst, ignore_errors=True)
@@ -79,8 +85,12 @@ def apply(wm: str) -> list[str]:
     backup = kantele_dir() / "pre-shell" / wm
     if not backup.exists():
         backup.parent.mkdir(parents=True, exist_ok=True)
-        _copy_existing(config.path.parent, backup)
+        _copy_existing(config.path.parent, backup, _files(backend))
         messages.append(f"Backup of your files: {backup}")
+    if settings.binds is None:
+        # whiplash without a [keybinds] table: its built-in keys are the base,
+        # and a table with only the new keys would drop all of them.
+        settings.binds = settings.effective_binds()
 
     existing = {backend.normalize_combo(b.combo): b for b in settings.binds}
     base = {_base_combo(backend, b, settings) for b in settings.base_binds}
@@ -101,7 +111,7 @@ def apply(wm: str) -> list[str]:
     if errors:
         raise LuaError("\n".join(errors))
     config.save(settings)
-    _copy_existing(config.path.parent, kantele_dir() / "applied" / wm)
+    _copy_existing(config.path.parent, kantele_dir() / "applied" / wm, _files(backend))
 
     messages.append(f"Added {len(added)} keys." if added else "Nothing to add.")
     messages.append(backend.reload_running())
@@ -117,7 +127,7 @@ def setup(wm: str, autostart: str | None = None, bar: str | None = None) -> list
     settings = config.read()
     if autostart is not None:
         settings.shell_autostart = autostart == "on"
-    if bar is not None:
+    if bar is not None and getattr(backend, "HAS_BAR", True):
         path = ("bar", "enable")
         settings.values[path] = settings.base[path] if bar == "default" else bar == "on"
     errors = backend.validate(settings)

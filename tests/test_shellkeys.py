@@ -73,7 +73,8 @@ class ShellKeysTest(unittest.TestCase):
         )
 
     def test_every_verb_is_bound_on_both(self):
-        for wm in shellkeys.BACKENDS:
+        # The Lua compositors; whiplash has its own tests in test_whiplash.py.
+        for wm in ("wasp", "spitfire"):
             shellkeys.apply(wm)
             commands = {b.arg for b in self.binds(wm)}
             self.assertEqual(commands, {f"kantele-shell {v}" for v in EXPECTED_VERBS})
