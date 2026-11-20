@@ -1,6 +1,6 @@
 # How the shells came to Kantele
 
-This is how four desktop shells ended up working on two Wayland compositors, and
+This is how the desktop shells ended up working on the Wayland compositors, and
 how Kantele learned to switch between them. It's here as a starting point if you
 want to take this further: add a shell or a compositor, or do something bolder
 with it. It covers the reasoning and the mistakes, which the code doesn't show.
@@ -10,7 +10,7 @@ The projects involved:
 | Kind | Projects |
 |---|---|
 | Compositors | [wasp](https://github.com/dani-77/wasp) (dwl/wlroots), [spitfire](https://github.com/dani-77/spitfire) (Smithay) |
-| Shells | [quickshell-d77](https://github.com/dani-77/quickshell-d77) and [Utumno](https://github.com/dani-77/utumno) (Quickshell), [fabric-d77](https://github.com/dani-77/fabric-d77) (Python, GTK), [helium-d77](https://github.com/dani-77/helium-d77) (Rust, Slint) |
+| Shells | [quickshell-d77](https://github.com/dani-77/quickshell-d77) and [Utumno](https://github.com/dani-77/utumno) (Quickshell), [fabric-d77](https://github.com/dani-77/fabric-d77) (Python, GTK), [helium-d77](https://github.com/dani-77/helium-d77) (Rust, Slint), [Frost](https://github.com/dani-77/frost) (Rust, Iced) |
 | Support | [qsd77](https://github.com/dani-77/qsd77), [Amorphis](https://github.com/dani-77/amorphis), Kantele |
 
 ## The goal
@@ -42,6 +42,7 @@ client for it, as a fallback after its compositor-specific code:
 - fabric-d77 has a small Wayland client in plain Python. The protocol passes no file
   descriptors, so the standard library is enough.
 - helium-d77 uses `wayland-client` on its own thread, and `xdg-output` for the bar's width.
+- Frost uses compositor IPC where available and `ext-workspace-v1` elsewhere.
 
 **Verbs.** Keybindings call `kantele-shell <verb>` (`launcher`, `lock`, `session`,
 `wallpaper`, `dashboard`, `ai`), and the script translates the verb for the shell
@@ -121,6 +122,11 @@ Run a compositor nested inside your session, with its own `XDG_CONFIG_HOME`,
    map each verb. A verb it doesn't have should warn, not fail.
 4. In `kantele/shellctl.py`, add it to `SHELLS`, `installed` and the package lists.
 5. Run it through the checklist: autostart, bar, keys, lock, reload, logout.
+
+Frost was added after the original four shells. Its daemon uses `frost run`;
+the launcher, wallpaper, dashboard and session actions use the matching
+`frost` commands. `frost lock` runs as a separate process and is excluded
+from shell shutdown. Frost has no `ai` action.
 
 ## Adding a compositor
 

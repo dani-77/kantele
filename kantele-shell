@@ -17,7 +17,7 @@
 # exists, otherwise the one found running. This is plain sh because it runs on
 # every key press.
 
-KNOWN_SHELLS="quickshell-d77 utumno fabric-d77 helium-d77"
+KNOWN_SHELLS="quickshell-d77 utumno fabric-d77 helium-d77 frost-d77"
 
 warn() {
 	echo "kantele-shell: $1" >&2
@@ -67,6 +67,17 @@ named_pids() {
 	done
 }
 
+frost_pids() {
+	# Frost's daemon and locker share an executable name. Only the daemon is
+	# part of the shell; switching shells must never terminate an active lock.
+	for pid in $(pgrep -x frost 2>/dev/null); do
+		arg=$(tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | sed -n '2p')
+		case "$1:$arg" in
+		run:run | run: | lock:lock) on_this_display "$pid" && echo "$pid" ;;
+		esac
+	done
+}
+
 running_shell() {
 	if [ -n "$(qs_pids quickshell-d77)" ]; then
 		echo quickshell-d77
@@ -76,6 +87,8 @@ running_shell() {
 		echo fabric-d77
 	elif [ -n "$(named_pids helium-shell)" ]; then
 		echo helium-d77
+	elif [ -n "$(frost_pids run)" ]; then
+		echo frost-d77
 	fi
 }
 
@@ -168,6 +181,16 @@ run_helium_lock() {
 	done
 	warn "helium-d77 needs amorphis, swaylock or hyprlock to lock the screen" "$urgency"
 	return 1
+}
+
+run_frost() {
+	if [ "$1" = lock ] && [ -n "$(frost_pids lock)" ]; then
+		return 0
+	fi
+	if ! frost "$1"; then
+		warn "Frost did not respond to '$1'" "$urgency"
+		return 1
+	fi
 }
 
 no_equivalent() {
@@ -306,6 +329,7 @@ shell_installed() {
 		;;
 	fabric-d77) command -v fabric-d77 >/dev/null 2>&1 ;;
 	helium-d77) command -v helium-shell >/dev/null 2>&1 && command -v helium-osd >/dev/null 2>&1 ;;
+	frost-d77) command -v frost >/dev/null 2>&1 ;;
 	*) return 1 ;;
 	esac
 }
@@ -330,6 +354,9 @@ launch_shell() {
 			setsid helium-backdrop >>"$log" 2>&1 </dev/null &
 		fi
 		;;
+	frost-d77)
+		setsid frost run >>"$log" 2>&1 </dev/null &
+		;;
 	esac
 }
 
@@ -341,6 +368,7 @@ shell_healthy() {
 		;;
 	fabric-d77) [ -n "$(fabric_pids)" ] ;;
 	helium-d77) [ -n "$(named_pids helium-shell)" ] && [ -n "$(named_pids helium-osd)" ] ;;
+	frost-d77) [ -n "$(frost_pids run)" ] ;;
 	*) return 1 ;;
 	esac
 }
@@ -372,6 +400,7 @@ all_shell_pids() {
 		named_pids helium-osd
 		named_pids helium-backdrop
 		;;
+	frost-d77) frost_pids run ;;
 	esac
 }
 
@@ -394,6 +423,7 @@ stop_shell() {
 }
 
 session_locked() {
+	[ -n "$(frost_pids lock)" ] && return 0
 	for locker in amorphis swaylock hyprlock; do
 		[ -n "$(named_pids "$locker")" ] && return 0
 	done
@@ -592,7 +622,7 @@ quickshell-d77:lock | utumno:lock) run_qsd77 "$shell" locker ;;
 quickshell-d77:session | utumno:session) run_qsd77 "$shell" session ;;
 quickshell-d77:dashboard) run_qsd77 "$shell" dashboard ;;
 quickshell-d77:ai | utumno:ai) run_qsd77 "$shell" ollama ;;
-utumno:dashboard | helium-d77:dashboard) no_equivalent "$shell" ;;
+utumno:dashboard | helium-d77:dashboard | frost-d77:ai) no_equivalent "$shell" ;;
 
 fabric-d77:launcher) run_fabric USR1 ;;
 fabric-d77:session) run_fabric USR2 ;;
@@ -606,4 +636,10 @@ helium-d77:wallpaper) run_helium_toggle helium-wallpaper ;;
 helium-d77:session) run_helium_toggle helium-session ;;
 helium-d77:ai) run_helium_toggle helium-ollama ;;
 helium-d77:lock) run_helium_lock ;;
+
+frost-d77:launcher) run_frost launcher ;;
+frost-d77:wallpaper) run_frost wallpaper ;;
+frost-d77:session) run_frost session ;;
+frost-d77:dashboard) run_frost dashboard ;;
+frost-d77:lock) run_frost lock ;;
 esac

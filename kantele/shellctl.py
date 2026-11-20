@@ -17,6 +17,7 @@ SHELLS = {
     "utumno": "Utumno",
     "fabric-d77": "fabric-d77",
     "helium-d77": "helium-d77",
+    "frost-d77": "Frost",
 }
 KEEP_SECONDS = 15
 
@@ -27,12 +28,14 @@ VOID_PACKAGES = {
     "utumno": ["quickshell", "qsd77", "utumno"],
     "fabric-d77": ["fabric-d77"],
     "helium-d77": ["helium-d77"],
+    "frost-d77": ["frost-d77"],
 }
 ARCH_PACKAGES = {
     "quickshell-d77": ["qsd77", "quickshell-d77"],
     "utumno": ["qsd77", "utumno"],
     "fabric-d77": ["fabric-d77"],
     "helium-d77": ["helium-d77"],
+    "frost-d77": ["frost-d77"],
 }
 AUR_HELPERS = ("paru", "yay")
 # How each terminal runs a command given after this prefix.
@@ -45,7 +48,7 @@ class CantInstall(Exception):
 
 # How a config.lua would start one of the shells by itself, once comments are gone.
 _STARTS_SHELL = re.compile(
-    r"""qsd77["',\s]+run|\bqs["',\s]+-c\b|\bfabric-d77\b(?!-signal)|\bhelium-shell\b""")
+    r"""qsd77["',\s]+run|\bqs["',\s]+-c\b|\bfabric-d77\b(?!-signal)|\bhelium-shell\b|\bfrost["',\s]+run\b""")
 
 
 def installed(shell: str) -> bool:
@@ -55,6 +58,8 @@ def installed(shell: str) -> bool:
         return bool(shutil.which("fabric-d77"))
     if shell == "helium-d77":
         return bool(shutil.which("helium-shell") and shutil.which("helium-osd"))
+    if shell == "frost-d77":
+        return bool(shutil.which("frost"))
     return False
 
 

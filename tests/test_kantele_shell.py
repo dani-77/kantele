@@ -34,6 +34,7 @@ class KanteleShellTest(unittest.TestCase):
             "helium-session",
             "helium-ollama",
             "helium-locker",
+            "frost",
         ):
             self.stub(name)
 
@@ -117,6 +118,25 @@ class KanteleShellTest(unittest.TestCase):
             self.assertEqual(self.run_verb(verb).returncode, 0)
             self.assertEqual(self.logged("fabric-d77-signal"), [f"fabric-d77-signal {signal}"])
 
+    def test_frost_actions_and_missing_ai(self):
+        self.use_shell("frost-d77")
+        for verb in ("launcher", "wallpaper", "session", "dashboard", "lock"):
+            self.log.write_text("")
+            self.assertEqual(self.run_verb(verb).returncode, 0)
+            self.assertEqual(self.logged("frost"), [f"frost {verb}"])
+
+        self.log.write_text("")
+        self.assertEqual(self.run_verb("ai").returncode, 0)
+        self.assertEqual(self.logged("frost"), [])
+        self.assertEqual(len(self.logged("notify-send")), 1)
+
+    def test_frost_lock_failure_warns_critically(self):
+        self.use_shell("frost-d77")
+        self.stub("frost", "exit 1")
+        result = self.run_verb("lock")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("-u critical", self.logged("notify-send")[0])
+
     def test_helium_opens_then_closes(self):
         self.use_shell("helium-d77")
         self.run_verb("launcher")
@@ -197,6 +217,19 @@ class KanteleShellTest(unittest.TestCase):
         self.stub("pgrep", '[ "$1 $2" = "-x helium-shell" ] && { echo 1; exit 0; }\nexit 1')
         self.run_verb("session")
         self.assertEqual(self.logged("helium-session"), ["helium-session "])
+
+    def test_frost_daemon_is_detected_but_locker_is_not(self):
+        self.stub("pgrep", f'[ "$1 $2" = "-x frost" ] && {{ echo {os.getpid()}; exit 0; }}\nexit 1')
+        self.stub("tr", "printf 'frost\\nrun\\n'")
+        self.assertEqual(self.run_verb("session").returncode, 0)
+        self.assertEqual(self.logged("frost"), ["frost session"])
+
+        self.log.write_text("")
+        self.stub("tr", "printf 'frost\\nlock\\n'")
+        result = self.run_verb("session")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no active shell", result.stderr)
+        self.assertEqual(self.logged("frost"), [])
 
     def test_config_file_beats_the_running_shell(self):
         self.stub("pgrep", "echo 1; exit 0")

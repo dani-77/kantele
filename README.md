@@ -124,8 +124,9 @@ position), **Keybindings** and **Shell**.
 On wasp, spitfire and whiplash, the **Shell** tab picks which d77 shell runs:
 [quickshell-d77](https://github.com/dani-77/quickshell-d77),
 [Utumno](https://github.com/dani-77/utumno),
-[fabric-d77](https://github.com/dani-77/fabric-d77) or
-[helium-d77](https://github.com/dani-77/helium-d77). Each compositor keeps its own
+[fabric-d77](https://github.com/dani-77/fabric-d77),
+[helium-d77](https://github.com/dani-77/helium-d77) or
+[Frost](https://github.com/dani-77/frost). Each compositor keeps its own
 choice. With nothing chosen, it keeps whatever it came with. A shell that isn't
 installed can be installed from the tab: with `pkexec xbps-install` on Void, which
 needs a polkit agent running and the d77 repository, and with `paru` or `yay` in a

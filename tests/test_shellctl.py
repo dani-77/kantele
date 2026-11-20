@@ -33,7 +33,9 @@ class ConfigStartsAShellTest(unittest.TestCase):
                      '"qsd77 run -c quickshell-d77",',
                      '{ "qs", "-c", "utumno" },',
                      '{ "fabric-d77" },',
-                     '"helium-shell",'):
+                     '"helium-shell",',
+                     '{ "frost", "run" },',
+                     '"frost run",'):
             self.assertTrue(self.check(line), line)
 
     def test_what_is_not_starting_one(self):
@@ -41,6 +43,7 @@ class ConfigStartsAShellTest(unittest.TestCase):
                      '{ "dunst" }, -- not fabric-d77',
                      'bind({ "super" }, "t", "spawn", { cmd = { "qsd77", "-c", "utumno", "locker" } })',
                      'bind({ "super" }, "p", "spawn", { cmd = { "fabric-d77-signal", "USR1" } })',
+                     'bind({ "super" }, "z", "spawn", { cmd = { "frost", "lock" } })',
                      '{ "swayidle", "-w", "timeout", "300", "kantele-shell lock" },'):
             self.assertFalse(self.check(line), line)
 
@@ -58,6 +61,7 @@ class InstallCommandTest(unittest.TestCase):
             self.assertEqual(shellctl.install_command("utumno"),
                              ["pkexec", "xbps-install", "-Sy", "quickshell", "qsd77", "utumno"])
             self.assertEqual(shellctl.install_command("helium-d77")[-1], "helium-d77")
+            self.assertEqual(shellctl.install_command("frost-d77")[-1], "frost-d77")
 
     def test_void_without_pkexec(self):
         with self.which("xbps-install"), self.assertRaises(shellctl.CantInstall):
