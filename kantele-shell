@@ -328,10 +328,17 @@ shell_installed() {
 		[ -d "/usr/share/quickshell/$1" ] && command -v qsd77 >/dev/null 2>&1
 		;;
 	fabric-d77) command -v fabric-d77 >/dev/null 2>&1 ;;
-	helium-d77) command -v helium-shell >/dev/null 2>&1 && command -v helium-osd >/dev/null 2>&1 ;;
+	helium-d77) command -v helium-shell >/dev/null 2>&1 ;;
 	frost-d77) command -v frost >/dev/null 2>&1 ;;
 	*) return 1 ;;
 	esac
+}
+
+# helium-d77 0.5 and later: one `helium` binary, whose helium-shell also shows
+# the OSD, started with `helium start`. Older ones have separate binaries and a
+# helium-osd process of their own.
+helium_single_binary() {
+	command -v helium >/dev/null 2>&1
 }
 
 launch_shell() {
@@ -346,6 +353,11 @@ launch_shell() {
 		setsid fabric-d77 >>"$log" 2>&1 </dev/null &
 		;;
 	helium-d77)
+		if helium_single_binary; then
+			# Starts the bar and the backdrop, each under its own name.
+			helium start >>"$log" 2>&1 </dev/null
+			return
+		fi
 		setsid helium-shell >>"$log" 2>&1 </dev/null &
 		setsid helium-osd >>"$log" 2>&1 </dev/null &
 		# Not part of the health check: without it nothing breaks, but clearing
@@ -367,7 +379,10 @@ shell_healthy() {
 			XDG_CONFIG_DIRS=/usr/share:${XDG_CONFIG_DIRS:-/etc/xdg} qs -c "$1" ipc show >/dev/null 2>&1
 		;;
 	fabric-d77) [ -n "$(fabric_pids)" ] ;;
-	helium-d77) [ -n "$(named_pids helium-shell)" ] && [ -n "$(named_pids helium-osd)" ] ;;
+	helium-d77)
+		[ -n "$(named_pids helium-shell)" ] &&
+			{ helium_single_binary || [ -n "$(named_pids helium-osd)" ]; }
+		;;
 	frost-d77) [ -n "$(frost_pids run)" ] ;;
 	*) return 1 ;;
 	esac
