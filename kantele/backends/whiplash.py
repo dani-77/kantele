@@ -43,6 +43,9 @@ HAS_BAR = False
 # (as it overrides config.lua's on wasp), says so, and backs the file up first.
 SHELL_KEYS_REPLACE = True
 SHELL_START = "kantele-shell start"
+# The autostart list lives in config.toml, which Kantele edits, so the Shell tab
+# can take out an entry that starts another shell instead of only warning.
+AUTOSTART_IN_CONFIG = True
 
 LAYOUTS = ("tall", "wide", "full")
 MODS = {"alt": "Alt", "mod1": "Alt", "super": "Super", "logo": "Super", "win": "Super",

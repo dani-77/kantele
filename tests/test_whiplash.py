@@ -10,6 +10,14 @@ from unittest import mock
 from kantele import shellctl, shellkeys
 from kantele.backends import whiplash as wl
 
+try:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+    from kantele.ui import luapage
+    from kantele.ui import whiplash as whiplash_ui
+except ImportError:
+    QApplication = None
+
 SAMPLE = """\
 # my whiplash config
 terminal = "alacritty"
@@ -192,6 +200,39 @@ class WhiplashShellKeysTest(unittest.TestCase):
         self.assertEqual(data["autostart"][-1], "kantele-shell start")
         shellkeys.setup("whiplash", autostart="off", bar="default")
         self.assertNotIn("kantele-shell start", tomllib.loads(self.path.read_text())["autostart"])
+
+    def test_drops_the_shell_the_autostart_starts(self):
+        self.path.write_text(SAMPLE)
+        shellkeys.setup("whiplash", autostart="on")
+        self.assertEqual(shellctl.autostart_shells("whiplash"), ["qsd77 run -c utumno"])
+        self.assertEqual(shellctl.drop_autostart_shells("whiplash"), ["qsd77 run -c utumno"])
+        self.assertEqual(tomllib.loads(self.path.read_text())["autostart"],
+                         ["dunst", "kantele-shell start"])
+        self.assertEqual(shellctl.autostart_shells("whiplash"), [])
+        self.assertFalse(shellctl.config_starts_a_shell(self.path))
+
+    def test_lua_compositors_never_have_their_autostart_edited(self):
+        self.assertEqual(shellctl.autostart_shells("wasp"), [])
+
+    @unittest.skipIf(QApplication is None, "needs PyQt6")
+    def test_next_login_offers_to_remove_the_other_shell(self):
+        app = QApplication.instance() or QApplication([])
+        self.path.write_text(SAMPLE)
+        with mock.patch.object(wl, "reload_running", return_value="Saved."), \
+                mock.patch.object(shellctl, "installed", return_value=True):
+            page = whiplash_ui.WhiplashPage(self.path)
+            tab = dict(page.parts)["Shell"]
+            self.assertIn("config.toml also starts", tab.warning.text())
+            tab.combo.setCurrentIndex(tab.combo.findData("quickshell-d77"))
+            with mock.patch.object(luapage.QMessageBox, "exec",
+                                   lambda box: box.defaultButton().click()):
+                tab.use_next_login()
+        data = tomllib.loads(self.path.read_text())
+        self.assertEqual(data["autostart"], ["dunst", "kantele-shell start"])
+        self.assertEqual(shellctl.chosen("whiplash"), "quickshell-d77")
+        self.assertEqual(dict(page.parts)["Shell"].warning.text(), "")
+        page.deleteLater()
+        app.processEvents()
 
 
 if __name__ == "__main__":

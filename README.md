@@ -136,7 +136,9 @@ terminal on Arch.
 bar off. If you don't confirm within 15 seconds, or the new shell doesn't come up,
 the previous one comes back. **Use from next login** only saves the choice, which
 also works for a compositor you aren't running. If `config.lua` starts a shell by
-itself, the tab warns you: remove that entry, as Kantele doesn't edit the file.
+itself, the tab warns you: remove that entry, as Kantele doesn't edit the file. On
+whiplash the autostart list is in `config.toml`, which Kantele already edits, so
+choosing a shell there offers to take the other shell's entry out for you.
 
 `kantele shell-keys` gives both compositors the same keys for shell actions, and
 `kantele-shell reset` undoes it. See [doc/shell-keys.md](doc/shell-keys.md). For how

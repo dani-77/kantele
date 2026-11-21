@@ -355,13 +355,48 @@ class ShellTab(QWidget):
 
         self._update_buttons()
         self.back_button.setEnabled(here and bool(status.get("previous")))
-        self.warning.setText(self.CONFIG_WARNING if self._config_starts_a_shell() else "")
+        self.warning.setText(self.config_warning() if self._config_starts_a_shell() else "")
 
-    CONFIG_WARNING = ("config.lua also starts a shell by itself. Remove that entry, or it "
-                      "will run instead of the one chosen here.")
+    def config_warning(self) -> str:
+        return (f"{self.page.cfg.path.name} also starts a shell by itself. Remove that "
+                "entry, or it will run instead of the one chosen here.")
 
     def _config_starts_a_shell(self) -> bool:
         return shellctl.config_starts_a_shell(self.page.cfg.path)
+
+    def _drop_autostart_shells(self) -> bool:
+        """Where Kantele edits the autostart list (whiplash), offers to take out an
+        entry that starts another shell. False if the user cancelled."""
+        found = shellctl.autostart_shells(self.wm)
+        if not found:
+            return True
+        shell = self.selected()
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Another shell in the autostart")
+        box.setText(f"The autostart in {self.page.cfg.path.name} also starts a shell:\n\n"
+                    + "\n".join(f"• {c}" for c in found)
+                    + "\n\nIt would run at login instead of the one chosen here. "
+                    "Remove it from the autostart?")
+        remove = box.addButton("Remove", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Keep it", QMessageBox.ButtonRole.NoRole)
+        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(remove)
+        box.exec()
+        if box.clickedButton() is cancel:
+            return False
+        if box.clickedButton() is remove:
+            if not self._saved_first():
+                return False
+            try:
+                shellctl.drop_autostart_shells(self.wm)
+            except (LuaError, OSError) as e:
+                QMessageBox.critical(self, "Not saved", str(e))
+                return False
+            # The reload fills the combo with what was chosen before.
+            self.page.reload()
+            self.combo.setCurrentIndex(max(0, self.combo.findData(shell)))
+        return True
 
     def install(self) -> None:
         shell = self.selected()
@@ -390,10 +425,13 @@ class ShellTab(QWidget):
         return self.page.save(False) is not None
 
     def use_next_login(self) -> None:
+        shell = self.selected()
+        if shell and not self._drop_autostart_shells():
+            return
         if not self._saved_first():
             return
         try:
-            shellctl.choose(self.wm, self.selected())
+            shellctl.choose(self.wm, shell)
         except (LuaError, OSError) as e:
             QMessageBox.critical(self, "Not saved", str(e))
         self.page.reload()
@@ -403,9 +441,14 @@ class ShellTab(QWidget):
         if not shell:
             self.use_next_login()
             return
-        if self._config_starts_a_shell():
+        if shellctl.autostart_shells(self.wm):
+            # _drop_autostart_shells asks, naming the entries.
+            if not self._drop_autostart_shells():
+                return
+        elif self._config_starts_a_shell():
             go_on = QMessageBox.warning(
-                self, "config.lua starts a shell", self.CONFIG_WARNING + "\n\nApply anyway?",
+                self, f"{self.page.cfg.path.name} starts a shell",
+                self.config_warning() + "\n\nApply anyway?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No)
             if go_on != QMessageBox.StandardButton.Yes:

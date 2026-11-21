@@ -9,7 +9,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .shellkeys import kantele_dir, setup
+from .shellkeys import BACKENDS, kantele_dir, setup
 
 # name -> what the user sees.
 SHELLS = {
@@ -144,3 +144,26 @@ def config_starts_a_shell(path: Path) -> bool:
     comment = "#" if path.suffix == ".toml" else "--"
     code = (line.split(comment, 1)[0] for line in lines)
     return any(_STARTS_SHELL.search(line) for line in code)
+
+
+def autostart_shells(wm: str) -> list[str]:
+    """The autostart entries that start a shell by themselves, for a compositor
+    whose autostart list Kantele edits (whiplash's config.toml). Always empty for
+    the others: their config.lua is the user's, so Kantele only warns there."""
+    backend = BACKENDS[wm][0]
+    if not getattr(backend, "AUTOSTART_IN_CONFIG", False):
+        return []
+    return [c for c in backend.Config().read().autostart or [] if _STARTS_SHELL.search(c)]
+
+
+def drop_autostart_shells(wm: str) -> list[str]:
+    """Takes out of the autostart the entries autostart_shells() finds, so they
+    don't start in place of the chosen shell. Returns what was taken out."""
+    found = autostart_shells(wm)
+    if found:
+        backend = BACKENDS[wm][0]
+        config = backend.Config()
+        settings = config.read()
+        settings.autostart = [c for c in settings.autostart if c not in found]
+        config.save(settings)
+    return found
