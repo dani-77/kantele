@@ -163,11 +163,11 @@ run_helium_toggle() {
 }
 
 run_helium_lock() {
-	# Not helium-locker: a layer-shika bug makes the compositor cancel its lock
-	# (see lock_command() in helium-session.rs), and it's known not to unlock.
-	# Not "loginctl lock-session" either: with nothing listening, it does nothing
-	# and still reports success.
-	for locker in amorphis swaylock hyprlock; do
+	# helium-locker first, as helium-session's Lock action does: since
+	# helium-d77 0.3.0 it no longer goes through layer-shika and unlocks on every
+	# d77 compositor. Not "loginctl lock-session": with nothing listening, it
+	# does nothing and still reports success.
+	for locker in helium-locker amorphis swaylock hyprlock; do
 		if command -v "$locker" >/dev/null 2>&1; then
 			# Never toggled: a second press must not start a second locker.
 			if pgrep -x "$locker" >/dev/null 2>&1; then
@@ -179,7 +179,7 @@ run_helium_lock() {
 			exec "$locker"
 		fi
 	done
-	warn "helium-d77 needs amorphis, swaylock or hyprlock to lock the screen" "$urgency"
+	warn "helium-d77 needs helium-locker, amorphis, swaylock or hyprlock to lock the screen" "$urgency"
 	return 1
 }
 
@@ -328,10 +328,17 @@ shell_installed() {
 		[ -d "/usr/share/quickshell/$1" ] && command -v qsd77 >/dev/null 2>&1
 		;;
 	fabric-d77) command -v fabric-d77 >/dev/null 2>&1 ;;
-	helium-d77) command -v helium-shell >/dev/null 2>&1 && command -v helium-osd >/dev/null 2>&1 ;;
+	helium-d77) command -v helium-shell >/dev/null 2>&1 ;;
 	frost-d77) command -v frost >/dev/null 2>&1 ;;
 	*) return 1 ;;
 	esac
+}
+
+# helium-d77 0.5 and later: one `helium` binary, whose helium-shell also shows
+# the OSD, started with `helium start`. Older ones have separate binaries and a
+# helium-osd process of their own.
+helium_single_binary() {
+	command -v helium >/dev/null 2>&1
 }
 
 launch_shell() {
@@ -346,6 +353,11 @@ launch_shell() {
 		setsid fabric-d77 >>"$log" 2>&1 </dev/null &
 		;;
 	helium-d77)
+		if helium_single_binary; then
+			# Starts the bar and the backdrop, each under its own name.
+			helium start >>"$log" 2>&1 </dev/null
+			return
+		fi
 		setsid helium-shell >>"$log" 2>&1 </dev/null &
 		setsid helium-osd >>"$log" 2>&1 </dev/null &
 		# Not part of the health check: without it nothing breaks, but clearing
@@ -367,7 +379,10 @@ shell_healthy() {
 			XDG_CONFIG_DIRS=/usr/share:${XDG_CONFIG_DIRS:-/etc/xdg} qs -c "$1" ipc show >/dev/null 2>&1
 		;;
 	fabric-d77) [ -n "$(fabric_pids)" ] ;;
-	helium-d77) [ -n "$(named_pids helium-shell)" ] && [ -n "$(named_pids helium-osd)" ] ;;
+	helium-d77)
+		[ -n "$(named_pids helium-shell)" ] &&
+			{ helium_single_binary || [ -n "$(named_pids helium-osd)" ]; }
+		;;
 	frost-d77) [ -n "$(frost_pids run)" ] ;;
 	*) return 1 ;;
 	esac
@@ -424,7 +439,7 @@ stop_shell() {
 
 session_locked() {
 	[ -n "$(frost_pids lock)" ] && return 0
-	for locker in amorphis swaylock hyprlock; do
+	for locker in helium-locker amorphis swaylock hyprlock; do
 		[ -n "$(named_pids "$locker")" ] && return 0
 	done
 	[ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null 2>&1 &&
