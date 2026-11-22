@@ -439,7 +439,7 @@ stop_shell() {
 
 session_locked() {
 	[ -n "$(frost_pids lock)" ] && return 0
-	for locker in amorphis swaylock hyprlock; do
+	for locker in helium-locker amorphis swaylock hyprlock; do
 		[ -n "$(named_pids "$locker")" ] && return 0
 	done
 	[ -n "${XDG_SESSION_ID:-}" ] && command -v loginctl >/dev/null 2>&1 &&
