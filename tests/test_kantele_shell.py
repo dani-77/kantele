@@ -148,21 +148,29 @@ class KanteleShellTest(unittest.TestCase):
         self.assertEqual(self.logged("helium-launcher"), [])
         self.assertEqual(len(self.logged("pkill")), 1)
 
-    def test_helium_lock_prefers_amorphis_and_skips_helium_locker(self):
+    def test_helium_lock_prefers_helium_locker(self):
         self.use_shell("helium-d77")
+        self.stub("amorphis")
+        self.stub("swaylock")
+        self.stub("hyprlock")
+        self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
+        self.assertEqual(self.logged("helium-locker"), ["helium-locker "])
+        self.assertEqual(self.logged("amorphis"), [])
+        self.assertEqual(self.logged("swaylock"), [])
+        self.assertEqual(self.logged("hyprlock"), [])
+
+    def test_helium_lock_falls_back_in_order(self):
+        self.use_shell("helium-d77")
+        (self.bin / "helium-locker").unlink()
         self.stub("amorphis")
         self.stub("swaylock")
         self.stub("hyprlock")
         self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
         self.assertEqual(self.logged("amorphis"), ["amorphis --backend wayland --effect blur"])
         self.assertEqual(self.logged("swaylock"), [])
-        self.assertEqual(self.logged("hyprlock"), [])
-        self.assertEqual(self.logged("helium-locker"), [])
 
-    def test_helium_lock_falls_back_in_order(self):
-        self.use_shell("helium-d77")
-        self.stub("swaylock")
-        self.stub("hyprlock")
+        self.log.write_text("")
+        (self.bin / "amorphis").unlink()
         self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
         self.assertEqual(self.logged("swaylock"), ["swaylock "])
         self.assertEqual(self.logged("hyprlock"), [])
@@ -171,15 +179,14 @@ class KanteleShellTest(unittest.TestCase):
         (self.bin / "swaylock").unlink()
         self.assertEqual(self.run_verb("lock", path=self.isolated_path()).returncode, 0)
         self.assertEqual(self.logged("hyprlock"), ["hyprlock "])
-        self.assertEqual(self.logged("helium-locker"), [])
 
     def test_helium_lock_without_a_locker_warns_critically(self):
         self.use_shell("helium-d77")
+        (self.bin / "helium-locker").unlink()
         result = self.run_verb("lock", path=self.isolated_path())
         self.assertEqual(result.returncode, 1)
-        self.assertIn("amorphis, swaylock or hyprlock", result.stderr)
+        self.assertIn("helium-locker, amorphis, swaylock or hyprlock", result.stderr)
         self.assertIn("-u critical", self.logged("notify-send")[0])
-        self.assertEqual(self.logged("helium-locker"), [])
 
     def test_helium_lock_never_toggles(self):
         self.use_shell("helium-d77")
