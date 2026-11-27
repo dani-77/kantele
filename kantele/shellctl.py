@@ -13,7 +13,6 @@ from .shellkeys import BACKENDS, kantele_dir, setup
 
 # name -> what the user sees.
 SHELLS = {
-    "quickshell-d77": "quickshell-d77",
     "utumno": "Utumno",
     "fabric-d77": "fabric-d77",
     "helium-d77": "helium-d77",
@@ -24,19 +23,20 @@ KEEP_SECONDS = 15
 # What to install for each shell. On Void the shell packages leave quickshell out
 # on purpose, so it doesn't hold back system upgrades; on Arch they depend on it.
 VOID_PACKAGES = {
-    "quickshell-d77": ["quickshell", "qsd77", "quickshell-d77"],
     "utumno": ["quickshell", "qsd77", "utumno"],
     "fabric-d77": ["fabric-d77"],
     "helium-d77": ["helium-d77"],
     "frost-d77": ["frost-d77"],
 }
 ARCH_PACKAGES = {
-    "quickshell-d77": ["qsd77", "quickshell-d77"],
     "utumno": ["qsd77", "utumno"],
     "fabric-d77": ["fabric-d77"],
     "helium-d77": ["helium-d77"],
     "frost-d77": ["frost-d77"],
 }
+# quickshell-d77 is archived and Utumno carries everything it had: a choice saved
+# before that means Utumno.
+RENAMED = {"quickshell-d77": "utumno"}
 AUR_HELPERS = ("paru", "yay")
 # How each terminal runs a command given after this prefix.
 TERMINALS = {"foot": ["foot"], "kitty": ["kitty"], "alacritty": ["alacritty", "-e"],
@@ -52,7 +52,7 @@ _STARTS_SHELL = re.compile(
 
 
 def installed(shell: str) -> bool:
-    if shell in ("quickshell-d77", "utumno"):
+    if shell == "utumno":
         return Path(f"/usr/share/quickshell/{shell}").is_dir() and bool(shutil.which("qsd77"))
     if shell == "fabric-d77":
         return bool(shutil.which("fabric-d77"))
@@ -103,6 +103,7 @@ def chosen(wm: str) -> str:
         name = choice_file(wm).read_text().strip()
     except OSError:
         return ""
+    name = RENAMED.get(name, name)
     return name if name in SHELLS else ""
 
 

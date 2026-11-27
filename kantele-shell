@@ -17,7 +17,18 @@
 # exists, otherwise the one found running. This is plain sh because it runs on
 # every key press.
 
-KNOWN_SHELLS="quickshell-d77 utumno fabric-d77 helium-d77 frost-d77"
+KNOWN_SHELLS="utumno fabric-d77 helium-d77 frost-d77"
+
+# quickshell-d77 is archived and Utumno carries everything it had, so it is no
+# longer offered, installed or started. A name saved before that means Utumno,
+# and a copy still running from an older session is still recognised, so keys
+# reach it and switching shells closes it.
+canonical_shell() {
+	case "$1" in
+	quickshell-d77) echo utumno ;;
+	*) echo "$1" ;;
+	esac
+}
 
 warn() {
 	echo "kantele-shell: $1" >&2
@@ -96,6 +107,7 @@ active_shell() {
 	override_file="${XDG_CONFIG_HOME:-$HOME/.config}/kantele/shell"
 	if [ -r "$override_file" ]; then
 		IFS= read -r override <"$override_file" || [ -n "$override" ]
+		override=$(canonical_shell "$override")
 		case " $KNOWN_SHELLS " in
 		*" $override "*)
 			echo "$override"
@@ -324,7 +336,7 @@ is_known_shell() {
 
 shell_installed() {
 	case "$1" in
-	quickshell-d77 | utumno)
+	utumno)
 		[ -d "/usr/share/quickshell/$1" ] && command -v qsd77 >/dev/null 2>&1
 		;;
 	fabric-d77) command -v fabric-d77 >/dev/null 2>&1 ;;
@@ -346,7 +358,7 @@ launch_shell() {
 	mkdir -p "$log_dir"
 	log=$log_dir/shell.log
 	case "$1" in
-	quickshell-d77 | utumno)
+	utumno)
 		setsid qsd77 run -c "$1" >>"$log" 2>&1 </dev/null &
 		;;
 	fabric-d77)
@@ -374,7 +386,7 @@ launch_shell() {
 
 shell_healthy() {
 	case "$1" in
-	quickshell-d77 | utumno)
+	utumno)
 		[ -n "$(qs_pids "$1")" ] &&
 			XDG_CONFIG_DIRS=/usr/share:${XDG_CONFIG_DIRS:-/etc/xdg} qs -c "$1" ipc show >/dev/null 2>&1
 		;;
@@ -457,7 +469,7 @@ configure_compositor() {
 read_first_line() {
 	if [ -r "$1" ]; then
 		IFS= read -r line <"$1" || [ -n "$line" ]
-		echo "$line"
+		canonical_shell "$line"
 	fi
 }
 
@@ -505,7 +517,7 @@ cmd_start() {
 
 cmd_switch() {
 	compositor_or_usage
-	new=$1
+	new=$(canonical_shell "$1")
 	if ! is_known_shell "$new"; then
 		warn "unknown shell '$new' (known: $KNOWN_SHELLS)"
 		return 2
@@ -635,9 +647,9 @@ quickshell-d77:launcher | utumno:launcher) run_qsd77 "$shell" launcher ;;
 quickshell-d77:wallpaper | utumno:wallpaper) run_qsd77 "$shell" wallpaper ;;
 quickshell-d77:lock | utumno:lock) run_qsd77 "$shell" locker ;;
 quickshell-d77:session | utumno:session) run_qsd77 "$shell" session ;;
-quickshell-d77:dashboard) run_qsd77 "$shell" dashboard ;;
+quickshell-d77:dashboard | utumno:dashboard) run_qsd77 "$shell" dashboard ;;
 quickshell-d77:ai | utumno:ai) run_qsd77 "$shell" ollama ;;
-utumno:dashboard | helium-d77:dashboard | frost-d77:ai) no_equivalent "$shell" ;;
+helium-d77:dashboard | frost-d77:ai) no_equivalent "$shell" ;;
 
 fabric-d77:launcher) run_fabric USR1 ;;
 fabric-d77:session) run_fabric USR2 ;;

@@ -69,9 +69,14 @@ class InstallCommandTest(unittest.TestCase):
 
     def test_arch_uses_the_helper_in_a_terminal(self):
         with self.which("pacman", "yay", "alacritty"):
-            argv = shellctl.install_command("quickshell-d77")
+            argv = shellctl.install_command("utumno")
         self.assertEqual(argv[:3], ["alacritty", "-e", "sh"])
-        self.assertEqual(argv[-4:], ["yay", "-S", "qsd77", "quickshell-d77"])
+        self.assertEqual(argv[-4:], ["yay", "-S", "qsd77", "utumno"])
+
+    def test_quickshell_d77_is_no_longer_offered(self):
+        self.assertNotIn("quickshell-d77", shellctl.SHELLS)
+        self.assertNotIn("quickshell-d77", shellctl.VOID_PACKAGES)
+        self.assertNotIn("quickshell-d77", shellctl.ARCH_PACKAGES)
 
     def test_arch_prefers_paru_and_foot_needs_no_flag(self):
         with self.which("pacman", "paru", "yay", "foot", "xterm"):
@@ -133,6 +138,11 @@ class ChooseTest(unittest.TestCase):
         shellctl.choose("wasp", "fabric-d77")
         self.assertEqual(shellctl.chosen("spitfire"), "utumno")
         self.assertEqual(shellctl.chosen("wasp"), "fabric-d77")
+
+    def test_a_saved_quickshell_d77_choice_means_utumno(self):
+        shellctl.choice_file("wasp").parent.mkdir(parents=True, exist_ok=True)
+        shellctl.choice_file("wasp").write_text("quickshell-d77\n")
+        self.assertEqual(shellctl.chosen("wasp"), "utumno")
 
     def test_an_unknown_name_in_the_file_counts_as_none(self):
         shellctl.choice_file("wasp").parent.mkdir(parents=True, exist_ok=True)

@@ -347,7 +347,8 @@ class ShellTab(QWidget):
         running = status.get("running", "")
         parts = [f"Chosen: {shellctl.SHELLS.get(chosen, 'nothing')}."]
         if here:
-            parts.insert(0, f"Running now: {shellctl.SHELLS.get(running, 'none')}.")
+            # A leftover quickshell-d77 is still reported by name.
+            parts.insert(0, f"Running now: {shellctl.SHELLS.get(running, running or 'none')}.")
         else:
             parts.append(f"You're not in a {self.wm} session, so this takes effect at its "
                          "next login.")

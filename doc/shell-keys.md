@@ -6,20 +6,22 @@ Each key runs `kantele-shell <verb>`, which translates the verb for the shell th
 is running. The compositors' own keys, such as layouts and window focus, are not
 part of this: wasp keeps `Alt` as its mod key and spitfire keeps `Super`.
 
-| Key | Action | Verb | quickshell-d77 | Utumno | fabric-d77 | helium-d77 | Frost |
-|---|---|---|---|---|---|---|---|
-| `Super+P` | Launcher | `launcher` | Yes | Yes | Yes | Yes | Yes |
-| `Super+Z` | Lock | `lock` | Yes | Yes | Yes | Yes (Amorphis, swaylock or hyprlock) | Yes |
-| `Super+X` | Session menu | `session` | Yes | Yes | Yes | Yes | Yes |
-| `Super+Y` | Wallpaper | `wallpaper` | Yes | Yes | Yes | Yes | Yes |
-| `Super+A` | Ollama chat | `ai` | Yes | Yes | Yes | Yes | No |
-| `Super+N` | Dashboard | `dashboard` | Yes | No | Yes | No | Yes |
-| `Super+Shift+Z` | Back to the previous shell | `restore` | Yes | Yes | Yes | Yes | Yes |
+| Key | Action | Verb | Utumno | fabric-d77 | helium-d77 | Frost |
+|---|---|---|---|---|---|---|
+| `Super+P` | Launcher | `launcher` | Yes | Yes | Yes | Yes |
+| `Super+Z` | Lock | `lock` | Yes | Yes | Yes (Amorphis, swaylock or hyprlock) | Yes |
+| `Super+X` | Session menu | `session` | Yes | Yes | Yes | Yes |
+| `Super+Y` | Wallpaper | `wallpaper` | Yes | Yes | Yes | Yes |
+| `Super+A` | Ollama chat | `ai` | Yes | Yes | Yes | No |
+| `Super+N` | Dashboard | `dashboard` | Yes | Yes | No | Yes |
+| `Super+Shift+Z` | Back to the previous shell | `restore` | Yes | Yes | Yes | Yes |
 
 Where a shell has no equivalent, the key shows a notification and does nothing else.
 
-quickshell-d77 is archived: Utumno superseded it and now carries everything it had.
-Its column stays for existing installs.
+quickshell-d77 is archived: Utumno superseded it and now carries everything it had,
+so Kantele no longer offers, installs or starts it. A `quickshell-d77` saved in
+Kantele's files from before counts as Utumno, and a copy still running from an older
+session still gets the keys, and is closed when switching shells.
 
 Volume keys stay on `amixer`, as they already are in both compositors' default
 `config.lua`. Brightness keys get no binding, since a laptop's firmware usually
@@ -56,5 +58,5 @@ own pages, `reset` asks first, and without a terminal to ask on it refuses.
 ## Choosing the shell
 
 The active shell is the one found running. To force one, put its name
-(`quickshell-d77`, `utumno`, `fabric-d77`, `helium-d77` or `frost-d77`) in
+(`utumno`, `fabric-d77`, `helium-d77` or `frost-d77`) in
 `~/.config/kantele/shell`.

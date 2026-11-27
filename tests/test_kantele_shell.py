@@ -82,26 +82,31 @@ class KanteleShellTest(unittest.TestCase):
             "session": "session",
             "ai": "ollama",
         }
-        for shell in ("quickshell-d77", "utumno"):
-            self.use_shell(shell)
-            for verb, command in verbs.items():
-                self.log.write_text("")
-                self.assertEqual(self.run_verb(verb).returncode, 0)
-                self.assertEqual(self.logged("qsd77"), [f"qsd77 -c {shell} {command}"])
+        self.use_shell("utumno")
+        for verb, command in verbs.items():
+            self.log.write_text("")
+            self.assertEqual(self.run_verb(verb).returncode, 0)
+            self.assertEqual(self.logged("qsd77"), [f"qsd77 -c utumno {command}"])
+
+    def test_quickshell_d77_name_means_utumno(self):
+        # quickshell-d77 is archived; a name saved before that targets Utumno.
+        self.use_shell("quickshell-d77")
+        result = self.run_verb("launcher")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.logged("qsd77"), ["qsd77 -c utumno launcher"])
+        self.assertEqual(self.logged("notify-send"), [])
 
     def test_dashboard_only_where_it_exists(self):
-        self.use_shell("quickshell-d77")
+        self.use_shell("utumno")
         self.run_verb("dashboard")
-        self.assertEqual(self.logged("qsd77"), ["qsd77 -c quickshell-d77 dashboard"])
+        self.assertEqual(self.logged("qsd77"), ["qsd77 -c utumno dashboard"])
 
-        for shell in ("utumno", "helium-d77"):
-            self.log.write_text("")
-            self.use_shell(shell)
-            result = self.run_verb("dashboard")
-            self.assertEqual(result.returncode, 0)
-            self.assertEqual(self.logged("qsd77"), [])
-            self.assertEqual(self.logged("helium-"), [])
-            self.assertEqual(len(self.logged("notify-send")), 1)
+        self.log.write_text("")
+        self.use_shell("helium-d77")
+        result = self.run_verb("dashboard")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.logged("helium-"), [])
+        self.assertEqual(len(self.logged("notify-send")), 1)
 
     def test_fabric_signals(self):
         self.use_shell("fabric-d77")
