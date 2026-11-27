@@ -18,6 +18,9 @@ part of this: wasp keeps `Alt` as its mod key and spitfire keeps `Super`.
 
 Where a shell has no equivalent, the key shows a notification and does nothing else.
 
+quickshell-d77 is archived: Utumno superseded it and now carries everything it had.
+Its column stays for existing installs.
+
 Volume keys stay on `amixer`, as they already are in both compositors' default
 `config.lua`. Brightness keys get no binding, since a laptop's firmware usually
 handles them. The shells notice either change and show their on-screen
