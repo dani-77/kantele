@@ -223,13 +223,13 @@ class WhiplashShellKeysTest(unittest.TestCase):
             page = whiplash_ui.WhiplashPage(self.path)
             tab = dict(page.parts)["Shell"]
             self.assertIn("config.toml also starts", tab.warning.text())
-            tab.combo.setCurrentIndex(tab.combo.findData("quickshell-d77"))
+            tab.combo.setCurrentIndex(tab.combo.findData("utumno"))
             with mock.patch.object(luapage.QMessageBox, "exec",
                                    lambda box: box.defaultButton().click()):
                 tab.use_next_login()
         data = tomllib.loads(self.path.read_text())
         self.assertEqual(data["autostart"], ["dunst", "kantele-shell start"])
-        self.assertEqual(shellctl.chosen("whiplash"), "quickshell-d77")
+        self.assertEqual(shellctl.chosen("whiplash"), "utumno")
         self.assertEqual(dict(page.parts)["Shell"].warning.text(), "")
         page.deleteLater()
         app.processEvents()

@@ -10,7 +10,7 @@ The projects involved:
 | Kind | Projects |
 |---|---|
 | Compositors | [wasp](https://github.com/dani-77/wasp) (dwl/wlroots), [spitfire](https://github.com/dani-77/spitfire) (Smithay) |
-| Shells | [quickshell-d77](https://github.com/dani-77/quickshell-d77) and [Utumno](https://github.com/dani-77/utumno) (Quickshell), [fabric-d77](https://github.com/dani-77/fabric-d77) (Python, GTK), [helium-d77](https://github.com/dani-77/helium-d77) (Rust, Slint), [Frost](https://github.com/dani-77/frost) (Rust, Iced) |
+| Shells | [Utumno](https://github.com/dani-77/utumno) (Quickshell; superseded the now-archived [quickshell-d77](https://github.com/dani-77/quickshell-d77)), [fabric-d77](https://github.com/dani-77/fabric-d77) (Python, GTK), [helium-d77](https://github.com/dani-77/helium-d77) (Rust, Slint), [Frost](https://github.com/dani-77/frost) (Rust, Iced) |
 | Support | [qsd77](https://github.com/dani-77/qsd77), [Amorphis](https://github.com/dani-77/amorphis), Kantele |
 
 ## The goal

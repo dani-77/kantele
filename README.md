@@ -122,8 +122,8 @@ position), **Keybindings** and **Shell**.
 ## Desktop shells
 
 On wasp, spitfire and whiplash, the **Shell** tab picks which d77 shell runs:
-[quickshell-d77](https://github.com/dani-77/quickshell-d77),
-[Utumno](https://github.com/dani-77/utumno),
+[Utumno](https://github.com/dani-77/utumno) (which superseded the archived
+[quickshell-d77](https://github.com/dani-77/quickshell-d77)),
 [fabric-d77](https://github.com/dani-77/fabric-d77),
 [helium-d77](https://github.com/dani-77/helium-d77) or
 [Frost](https://github.com/dani-77/frost). Each compositor keeps its own
