@@ -169,7 +169,14 @@ on both backends, and most of `[x11.keybinds]` stops being needed.
    shell detection, the redundant-override report. Tests against a copy of
    Daniel's config.
 4. [x] GUI: Whiplash Shell tab with Wayland and X11 sections; wmd77 Shell tab.
-5. [ ] Decided proposals outside Kantele (Whiplash, d77void).
+5. [~] Decided proposals outside Kantele (Whiplash, d77void):
+   - whiplash branch `atg-from-config` (7938d3a): `whiplash-session` no longer
+     adds ATG; the d77 X11 default and the example's `[x11]` list start it.
+     Checked in Xvfb (no config, example, own list without ATG) and Kantele
+     swaps the example's ATG line for `kantele-shell start`.
+   - d77void branch `wmd77-kantele-shell`: `startup.sh` runs
+     `kantele-shell start` when Kantele is installed, ATG directly otherwise;
+     the skel picks ATG. Only for an ISO built after this Kantele is released.
 6. [ ] Release and packaging (Void, AUR, d77-iso where Kantele is).
 
 Tests follow the existing notes:
