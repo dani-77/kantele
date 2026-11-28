@@ -49,7 +49,8 @@ wmd77 0.5.0 reads the same `config.toml` format as pwm, so it gets the same
 pages and the same in-place editing. Only **Bar** differs: wmd77 keeps its
 own dwm-style bar, and the page turns it on or off, sets its height, font
 size and position, and how much room to keep free at the top for an external
-bar such as polybar. Save and apply sends `SIGHUP`, like pwm.
+bar such as polybar. Save and apply sends `SIGHUP`, like pwm. Its **Shell** tab
+picks ATG as wmd77's shell (see [X11 shells](#x11-shells-atg)).
 
 ### wasp
 
@@ -147,6 +148,31 @@ this came together, and how to add a shell or compositor, see
 
 From a terminal, `kantele-shell` has `status`, `switch <shell>`, `keep`, `restore`,
 `start` and `stop`. `Super+Shift+Z` also goes back to the previous shell.
+
+### X11 shells: ATG
+
+On X11, the shell is [ATG](https://github.com/d77void/ATG): on wmd77 and in
+Whiplash's X11 session. `kantele-shell` tells the session apart (an X display
+with no Wayland one, or `XDG_SESSION_TYPE=x11`) and sends its verbs to ATG
+there. `launcher`, `session` and `wallpaper` open ATG's panels, `lock` locks with
+Amorphis, and ATG has no `dashboard` or `ai`. The same `kantele-shell <verb>` keys
+work on both backends. The X11 choice is kept apart from the Wayland one, so
+whiplash keeps one of each.
+
+- **wmd77:** choosing ATG turns wmd77's own bar off and keeps 48 px free for ATG,
+  restarting wmd77 only if the bar really changes; going back restores what
+  `config.toml` had. Start the shell from `startup.sh` with `kantele-shell start`
+  for the choice to decide, as the d77void wmd77 variant does. Kantele doesn't edit
+  the script, and warns if it starts a shell by itself.
+- **whiplash:** the **Shell** tab has a Wayland and an X11 section, and Kantele
+  reads the `[wayland]`/`[x11]` profiles. `kantele-shell start` goes into the
+  autostart list each backend runs, and choosing ATG offers to replace an ATG line
+  in `[x11].autostart` with it. **Use kantele-shell keys on X11** rewrites the
+  `[x11.keybinds]` entries that run ATG's own command for a verb (after showing
+  them). The OSD, screenshot and System Monitor keys stay.
+
+ATG installs from the Shell tab on Void; it isn't packaged for Arch yet. How this
+was designed is in [doc/x11-shells-plan.md](doc/x11-shells-plan.md).
 
 ## Usage
 
