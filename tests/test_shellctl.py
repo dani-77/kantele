@@ -98,8 +98,24 @@ class InstallCommandTest(unittest.TestCase):
             shellctl.install_command("fabric-d77")
 
     def test_every_shell_has_packages_on_both(self):
+        # ATG isn't in the AUR yet; every Wayland shell is on both.
         self.assertEqual(set(shellctl.VOID_PACKAGES), set(shellctl.SHELLS))
-        self.assertEqual(set(shellctl.ARCH_PACKAGES), set(shellctl.SHELLS))
+        self.assertEqual(set(shellctl.ARCH_PACKAGES), set(shellctl.shells_for("wayland")))
+
+    def test_atg_on_void_brings_quickshell_and_qsd77(self):
+        with self.which("xbps-install", "pkexec"):
+            self.assertEqual(shellctl.install_command("atg"),
+                             ["pkexec", "xbps-install", "-Sy", "quickshell", "qsd77", "atg"])
+
+    def test_atg_on_arch_says_it_is_not_packaged(self):
+        with self.which("pacman", "paru", "foot"), self.assertRaises(shellctl.CantInstall) as raised:
+            shellctl.install_command("atg")
+        self.assertIn("isn't packaged for Arch", str(raised.exception))
+
+    def test_every_shell_has_a_backend(self):
+        self.assertEqual(set(shellctl.BACKEND), set(shellctl.SHELLS))
+        self.assertEqual(list(shellctl.shells_for("x11")), ["atg"])
+        self.assertNotIn("atg", shellctl.shells_for("wayland"))
 
 
 @unittest.skipUnless(shutil.which(wasp.LUA), "needs lua5.4")
@@ -139,6 +155,89 @@ class ChooseTest(unittest.TestCase):
         self.assertEqual(shellctl.chosen("spitfire"), "utumno")
         self.assertEqual(shellctl.chosen("wasp"), "fabric-d77")
 
+    def test_x11_choice_is_kept_apart(self):
+        # whiplash has a Wayland and an X11 choice, in separate files, as
+        # kantele-shell keeps them.
+        x11 = shellctl.choice_file("whiplash", "x11")
+        self.assertEqual(x11.name, "shell-whiplash-x11")
+        self.assertEqual(shellctl.choice_file("whiplash").name, "shell-whiplash")
+        x11.parent.mkdir(parents=True, exist_ok=True)
+        x11.write_text("atg\n")
+        shellctl.choice_file("whiplash").write_text("utumno\n")
+        self.assertEqual(shellctl.chosen("whiplash", "x11"), "atg")
+        self.assertEqual(shellctl.chosen("whiplash"), "utumno")
+
+    def test_a_shell_only_counts_on_its_own_backend(self):
+        shellctl.choice_file("whiplash").parent.mkdir(parents=True, exist_ok=True)
+        shellctl.choice_file("whiplash").write_text("atg\n")
+        shellctl.choice_file("whiplash", "x11").write_text("utumno\n")
+        self.assertEqual(shellctl.chosen("whiplash"), "")
+        self.assertEqual(shellctl.chosen("whiplash", "x11"), "")
+
+    def test_choose_refuses_a_shell_of_the_other_backend(self):
+        with self.assertRaises(ValueError):
+            shellctl.choose("wasp", "atg")
+        with self.assertRaises(ValueError):
+            shellctl.choose("wmd77", "utumno", backend="x11")
+
+    def test_lua_compositors_have_no_x11(self):
+        from kantele import shellkeys
+        with self.assertRaises(shellkeys.LuaError):
+            shellkeys.setup("wasp", autostart="on", backend="x11")
+
+    def test_wmd77_bar_makes_room_for_atg_and_comes_back(self):
+        import tomllib
+        from kantele import shellkeys
+        from kantele.backends import pwm
+        (self.home / "wmd77").mkdir()
+        cfg = self.home / "wmd77/config.toml"
+        cfg.write_text("[bar]\nheight = 22\nreserve_top = 30\n")
+        with mock.patch.object(pwm, "reload_running", return_value="Saved."):
+            shellkeys.setup("wmd77", autostart="on", bar="off", backend="x11")
+            bar = tomllib.loads(cfg.read_text())["bar"]
+            self.assertEqual((bar["enable"], bar["reserve_top"], bar["height"]), (False, 48, 22))
+            # A second switch keeps the first saved values.
+            shellkeys.setup("wmd77", bar="off", backend="x11")
+            shellkeys.setup("wmd77", autostart="off", bar="default", backend="x11")
+        self.assertEqual(tomllib.loads(cfg.read_text())["bar"], {"height": 22, "reserve_top": 30})
+        self.assertFalse((self.home / "kantele/wmd77-bar.previous").exists())
+
+    def test_wmd77_is_not_restarted_when_the_bar_is_already_right(self):
+        from kantele import shellkeys
+        from kantele.backends import pwm
+        (self.home / "wmd77").mkdir()
+        cfg = self.home / "wmd77/config.toml"
+        cfg.write_text("[bar]\nenable = false\n# ATG\nreserve_top = 48\n")
+        with mock.patch.object(pwm, "reload_running") as reload:
+            shellkeys.setup("wmd77", autostart="on", bar="off", backend="x11")
+            shellkeys.setup("wmd77", autostart="off", bar="default", backend="x11")
+        reload.assert_not_called()
+        self.assertEqual(cfg.read_text(), "[bar]\nenable = false\n# ATG\nreserve_top = 48\n")
+
+    def test_wmd77_falls_back_to_its_own_bar(self):
+        import tomllib
+        from kantele import shellkeys
+        from kantele.backends import pwm
+        (self.home / "wmd77").mkdir()
+        cfg = self.home / "wmd77/config.toml"
+        cfg.write_text("")
+        with mock.patch.object(pwm, "reload_running", return_value="Saved."):
+            shellkeys.setup("wmd77", bar="off", backend="x11")
+            shellkeys.setup("wmd77", bar="on", backend="x11")
+        self.assertEqual(tomllib.loads(cfg.read_text())["bar"], {"enable": True})
+
+    def test_wmd77_startup_script_check(self):
+        script = self.home / "startup.sh"
+        script.write_text("dunst &\nQT_QPA_PLATFORM=xcb qs -n -d -c atg\n")
+        self.assertTrue(shellctl.startup_script_starts_a_shell(script))
+        # d77void's: kantele-shell start, with ATG as the fallback without Kantele.
+        script.write_text("command -v kantele-shell >/dev/null && kantele-shell start ||\n"
+                          "\tQT_QPA_PLATFORM=xcb qs -n -d -c atg\n")
+        self.assertFalse(shellctl.startup_script_starts_a_shell(script))
+        script.write_text("# qs -n -d -c atg\ndunst &\n")
+        self.assertFalse(shellctl.startup_script_starts_a_shell(script))
+        self.assertFalse(shellctl.startup_script_starts_a_shell(self.home / "missing.sh"))
+
     def test_a_saved_quickshell_d77_choice_means_utumno(self):
         shellctl.choice_file("wasp").parent.mkdir(parents=True, exist_ok=True)
         shellctl.choice_file("wasp").write_text("quickshell-d77\n")
@@ -173,7 +272,8 @@ class ChooseTest(unittest.TestCase):
     @unittest.skipIf(QApplication is None, "needs PyQt6")
     def test_a_missing_shell_offers_install_instead_of_apply(self):
         app = QApplication.instance() or QApplication([])
-        with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "wasp"}), \
+        with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "wasp",
+                                          "XDG_SESSION_TYPE": "wayland"}), \
                 mock.patch.object(shellctl, "status", return_value={}), \
                 mock.patch.object(shellctl, "installed",
                                   side_effect=lambda name: name != "helium-d77"):

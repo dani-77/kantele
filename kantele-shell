@@ -16,8 +16,40 @@
 # The active shell is the name in $XDG_CONFIG_HOME/kantele/shell if that file
 # exists, otherwise the one found running. This is plain sh because it runs on
 # every key press.
+#
+# Shells belong to one display server. Wayland sessions (wasp, spitfire,
+# whiplash) use the Wayland shells; X11 sessions (wmd77, whiplash's X11
+# backend) use ATG. On X11 the choice is kept apart, in shell-<wm>-x11, so
+# switching one backend never touches the other.
 
-KNOWN_SHELLS="utumno fabric-d77 helium-d77 frost-d77"
+WAYLAND_SHELLS="utumno fabric-d77 helium-d77 frost-d77"
+X11_SHELLS="atg"
+
+# X11 when the session says so (whiplash-session exports XDG_SESSION_TYPE=x11),
+# or when there is an X display and no Wayland one (wmd77 from startx sets
+# neither XDG_SESSION_TYPE nor XDG_CURRENT_DESKTOP).
+session_type() {
+	case "${XDG_SESSION_TYPE:-}" in
+	x11 | wayland)
+		echo "$XDG_SESSION_TYPE"
+		return
+		;;
+	esac
+	if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -n "${DISPLAY:-}" ]; then
+		echo x11
+	else
+		echo wayland
+	fi
+}
+
+SESSION=$(session_type)
+if [ "$SESSION" = x11 ]; then
+	KNOWN_SHELLS=$X11_SHELLS
+	OTHER_SHELLS=$WAYLAND_SHELLS
+else
+	KNOWN_SHELLS=$WAYLAND_SHELLS
+	OTHER_SHELLS=$X11_SHELLS
+fi
 
 # quickshell-d77 is archived and Utumno carries everything it had, so it is no
 # longer offered, installed or started. A name saved before that means Utumno,
@@ -46,8 +78,15 @@ usage() {
 
 on_this_display() {
 	# Another session on another VT can run its own shell; never act on that one.
-	[ -n "${WAYLAND_DISPLAY:-}" ] || return 0
-	{ tr '\0' '\n' <"/proc/$1/environ"; } 2>/dev/null | grep -qx "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+	if [ "$SESSION" = x11 ]; then
+		variable=DISPLAY
+		value=${DISPLAY:-}
+	else
+		variable=WAYLAND_DISPLAY
+		value=${WAYLAND_DISPLAY:-}
+	fi
+	[ -n "$value" ] || return 0
+	{ tr '\0' '\n' <"/proc/$1/environ"; } 2>/dev/null | grep -qx "$variable=$value"
 }
 
 qs_pids() {
@@ -90,6 +129,10 @@ frost_pids() {
 }
 
 running_shell() {
+	if [ "$SESSION" = x11 ]; then
+		[ -z "$(qs_pids atg)" ] || echo atg
+		return
+	fi
 	if [ -n "$(qs_pids quickshell-d77)" ]; then
 		echo quickshell-d77
 	elif [ -n "$(qs_pids utumno)" ]; then
@@ -114,7 +157,11 @@ active_shell() {
 			return
 			;;
 		esac
-		warn "unknown shell '$override' in $override_file, ignoring it" >&2
+		# A shell of the other display server: valid, just not for this session.
+		case " $OTHER_SHELLS " in
+		*" $override "*) ;;
+		*) warn "unknown shell '$override' in $override_file, ignoring it" >&2 ;;
+		esac
 	fi
 	running_shell
 }
@@ -193,6 +240,19 @@ run_helium_lock() {
 	done
 	warn "helium-d77 needs helium-locker, amorphis, swaylock or hyprlock to lock the screen" "$urgency"
 	return 1
+}
+
+run_atg_lock() {
+	# ATG has no locker of its own: its session menu locks with Amorphis, so the
+	# key does the same. Never a second locker on a second press.
+	if [ -n "$(named_pids amorphis)" ]; then
+		return 0
+	fi
+	if ! command -v amorphis >/dev/null 2>&1; then
+		warn "ATG needs amorphis to lock the screen" "$urgency"
+		return 1
+	fi
+	exec amorphis --backend x11
 }
 
 run_frost() {
@@ -313,18 +373,31 @@ KEEP_SECONDS=15
 VERIFY_SECONDS=12
 VERIFY_STABLE=3
 
-compositor_or_usage() {
-	case "${XDG_CURRENT_DESKTOP:-}" in
-	wasp | spitfire | whiplash) compositor=$XDG_CURRENT_DESKTOP ;;
-	*)
-		echo "kantele-shell: this needs a running wasp, spitfire or whiplash session" >&2
-		exit 2
+current_compositor() {
+	case "$SESSION:${XDG_CURRENT_DESKTOP:-}" in
+	wayland:wasp | wayland:spitfire | wayland:whiplash | x11:whiplash | x11:wmd77)
+		echo "$XDG_CURRENT_DESKTOP"
+		;;
+	x11:)
+		# wmd77 started by startx sets no XDG_CURRENT_DESKTOP.
+		[ -z "$(named_pids wmd77)" ] || echo wmd77
 		;;
 	esac
+}
+
+compositor_or_usage() {
+	compositor=$(current_compositor)
+	if [ -z "$compositor" ]; then
+		echo "kantele-shell: this needs a running wasp, spitfire, whiplash or wmd77 session" >&2
+		exit 2
+	fi
+	# X11 choices live apart from the Wayland ones: whiplash has both.
+	suffix=""
+	[ "$SESSION" = x11 ] && suffix=-x11
 	state_dir=${XDG_CONFIG_HOME:-$HOME/.config}/kantele
-	choice_file=$state_dir/shell-$compositor
-	previous_file=$state_dir/shell-$compositor.previous
-	pending_file=$state_dir/shell-$compositor.pending
+	choice_file=$state_dir/shell-$compositor$suffix
+	previous_file=$state_dir/shell-$compositor$suffix.previous
+	pending_file=$state_dir/shell-$compositor$suffix.pending
 }
 
 is_known_shell() {
@@ -342,6 +415,10 @@ shell_installed() {
 	fabric-d77) command -v fabric-d77 >/dev/null 2>&1 ;;
 	helium-d77) command -v helium-shell >/dev/null 2>&1 ;;
 	frost-d77) command -v frost >/dev/null 2>&1 ;;
+	atg)
+		[ -r /usr/share/quickshell/atg/shell.qml ] &&
+			command -v qs >/dev/null 2>&1 && command -v qsd77 >/dev/null 2>&1
+		;;
 	*) return 1 ;;
 	esac
 }
@@ -381,12 +458,17 @@ launch_shell() {
 	frost-d77)
 		setsid frost run >>"$log" 2>&1 </dev/null &
 		;;
+	atg)
+		# As whiplash-session and wmd77's startup.sh start it.
+		QT_QPA_PLATFORM=xcb XDG_CONFIG_DIRS=/usr/share:${XDG_CONFIG_DIRS:-/etc/xdg} \
+			setsid qs -n -d -c atg >>"$log" 2>&1 </dev/null &
+		;;
 	esac
 }
 
 shell_healthy() {
 	case "$1" in
-	utumno)
+	utumno | atg)
 		[ -n "$(qs_pids "$1")" ] &&
 			XDG_CONFIG_DIRS=/usr/share:${XDG_CONFIG_DIRS:-/etc/xdg} qs -c "$1" ipc show >/dev/null 2>&1
 		;;
@@ -420,7 +502,7 @@ verify_shell() {
 
 all_shell_pids() {
 	case "$1" in
-	quickshell-d77 | utumno) qs_pids "$1" ;;
+	quickshell-d77 | utumno | atg) qs_pids "$1" ;;
 	fabric-d77) fabric_pids ;;
 	helium-d77)
 		named_pids helium-shell
@@ -461,7 +543,10 @@ session_locked() {
 configure_compositor() {
 	# Adds or removes the autostart entry and handles the built-in bar, in
 	# kantele.lua. Nothing here is worth stopping for: the shell itself is running.
-	if ! command -v kantele >/dev/null 2>&1 || ! kantele shell-setup --wm "$compositor" "$@" >/dev/null 2>&1; then
+	backend=""
+	[ "$SESSION" = x11 ] && backend="--backend x11"
+	# shellcheck disable=SC2086 # empty or two words
+	if ! command -v kantele >/dev/null 2>&1 || ! kantele shell-setup --wm "$compositor" $backend "$@" >/dev/null 2>&1; then
 		warn "couldn't update the $compositor settings ($*)"
 	fi
 }
@@ -476,6 +561,7 @@ read_first_line() {
 cmd_status() {
 	compositor_or_usage
 	echo "compositor=$compositor"
+	echo "session=$SESSION"
 	echo "running=$(running_shell)"
 	echo "chosen=$(read_first_line "$choice_file")"
 	echo "previous=$(read_first_line "$previous_file")"
@@ -669,4 +755,10 @@ frost-d77:wallpaper) run_frost wallpaper ;;
 frost-d77:session) run_frost session ;;
 frost-d77:dashboard) run_frost dashboard ;;
 frost-d77:lock) run_frost lock ;;
+
+atg:launcher) run_qsd77 atg launcher ;;
+atg:wallpaper) run_qsd77 atg wallpaper ;;
+atg:session) run_qsd77 atg session ;;
+atg:lock) run_atg_lock ;;
+atg:dashboard | atg:ai) no_equivalent ATG ;;
 esac

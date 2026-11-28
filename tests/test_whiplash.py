@@ -159,6 +159,219 @@ class WhiplashTest(unittest.TestCase):
         self.assertFalse(shellctl.config_starts_a_shell(self.path))
 
 
+PROFILES = """\
+terminal = "alacritty"
+
+# Wayland by default.
+autostart = [
+    "awww-daemon",
+    "dunst",
+    "kantele-shell start",
+]
+
+[keybinds]
+"Super+space" = "spawn qsd77 -c utumno launcher"
+"Super+t" = "spawn kantele-shell lock"
+"Super+n" = "spawn kantele-shell dashboard"
+"Print" = "spawn grim shot.png"
+
+# Xorg session profile.
+[x11]
+autostart = [
+  "dunst",
+  "amorphis-idle",
+]
+
+[x11.keybinds]
+"Super+space" = "spawn qsd77 -c atg launcher"
+"Super+a" = false
+"Super+t" = "spawn amorphis --backend x11"
+"Super+x" = "spawn qsd77 -c atg session"
+"Super+y" = "spawn qsd77 -c atg wallpaper"
+"XF86AudioMute" = "spawn qsd77 -c atg ipc call osd volumeMuteToggle"
+"Print" = 'spawn scrot "$HOME/shot.png"'
+"Super+n" = 'spawn env GDK_BACKEND=x11 /usr/share/quickshell/atg/monitor/d77-monitor cpu'
+"Super+Shift+z" = false
+"""
+
+
+class WhiplashProfilesTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.config_home = Path(tmp.name)
+        patcher = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.config_home)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        (self.config_home / "whiplash").mkdir()
+        self.path = self.config_home / "whiplash" / "config.toml"
+        self.path.write_text(PROFILES)
+
+    def test_reads_the_backend_profiles(self):
+        s = wl.Config(self.path).read()
+        self.assertEqual(s.backend_autostart["x11"], ["dunst", "amorphis-idle"])
+        self.assertIsNone(s.backend_autostart["wayland"])
+        self.assertIs(s.backend_binds["x11"]["Super+a"], False)
+        self.assertIsNone(s.backend_binds["wayland"])
+        self.assertEqual(s.autostart_for("wayland"), ["awww-daemon", "dunst", "kantele-shell start"])
+        self.assertEqual(s.autostart_for("x11"), ["dunst", "amorphis-idle"])
+        self.assertEqual(wl.validate(s), [])
+
+    def test_save_without_changes_keeps_the_file(self):
+        config = wl.Config(self.path)
+        config.save(config.read())
+        self.assertEqual(self.path.read_text(), PROFILES)
+
+    def test_shell_start_goes_where_each_backend_runs_it(self):
+        config = wl.Config(self.path)
+        s = config.read()
+        self.assertTrue(s.shell_autostart_on("wayland"))
+        self.assertFalse(s.shell_autostart_on("x11"))
+        s.set_shell_autostart(True, "x11")
+        config.save(s)
+        data = tomllib.loads(self.path.read_text())
+        self.assertEqual(data["x11"]["autostart"], ["dunst", "amorphis-idle", "kantele-shell start"])
+        self.assertIn("kantele-shell start", data["autostart"])
+
+        s = wl.Config(self.path).read()
+        s.set_shell_autostart(False, "wayland")
+        wl.Config(self.path).save(s)
+        data = tomllib.loads(self.path.read_text())
+        self.assertNotIn("kantele-shell start", data["autostart"])
+        self.assertIn("kantele-shell start", data["x11"]["autostart"])
+
+    def test_turning_one_backend_off_keeps_a_shared_entry_for_the_other(self):
+        self.path.write_text('autostart = ["dunst", "kantele-shell start"]\n')
+        s = wl.Config(self.path).read()
+        s.set_shell_autostart(False, "x11", other_wants_it=True)
+        wl.Config(self.path).save(s)
+        data = tomllib.loads(self.path.read_text())
+        self.assertEqual(data["autostart"], ["dunst", "kantele-shell start"])
+        self.assertEqual(data["x11"]["autostart"], ["dunst"])
+
+    def test_without_profiles_off_still_edits_the_shared_list(self):
+        self.path.write_text('autostart = ["dunst", "kantele-shell start"]\n')
+        s = wl.Config(self.path).read()
+        s.set_shell_autostart(False, "wayland")
+        wl.Config(self.path).save(s)
+        self.assertEqual(self.path.read_text(), 'autostart = ["dunst"]\n')
+
+    def test_finds_the_atg_commands_kantele_shell_covers(self):
+        s = wl.Config(self.path).read()
+        found = {combo: new for combo, _old, new in wl.shell_key_overrides(s)}
+        self.assertEqual(found, {
+            "Super+space": "spawn kantele-shell launcher",
+            "Super+t": "spawn kantele-shell lock",
+            "Super+x": "spawn kantele-shell session",
+            "Super+y": "spawn kantele-shell wallpaper",
+        })
+
+    def test_replacing_keeps_the_rest_of_x11_keybinds(self):
+        config = wl.Config(self.path)
+        s = config.read()
+        self.assertEqual(len(wl.replace_shell_key_overrides(s)), 4)
+        config.save(s)
+        text = self.path.read_text()
+        data = tomllib.loads(text)["x11"]["keybinds"]
+        self.assertEqual(data["Super+x"], "spawn kantele-shell session")
+        self.assertIs(data["Super+a"], False)
+        self.assertIs(data["Super+Shift+z"], False)
+        self.assertIn("d77-monitor cpu", data["Super+n"])
+        self.assertIn("osd volumeMuteToggle", data["XF86AudioMute"])
+        self.assertIn('scrot "$HOME/shot.png"', data["Print"])
+        self.assertIn("# Xorg session profile.", text)
+        self.assertEqual(wl.shell_key_overrides(wl.Config(self.path).read()), [])
+
+    def test_validate_checks_the_profile_keybinds(self):
+        s = wl.Config(self.path).read()
+        s.backend_binds["x11"]["Super+q"] = "fly away"
+        s.backend_binds["x11"]["Hyper+q"] = "close"
+        errors = "\n".join(wl.validate(s))
+        self.assertIn("[x11.keybinds] 'Super+q': unknown action 'fly'", errors)
+        self.assertIn("unknown modifier 'Hyper'", errors)
+
+    def test_setup_turns_the_x11_shell_on_and_off(self):
+        shellkeys.setup("whiplash", autostart="on", backend="x11")
+        data = tomllib.loads(self.path.read_text())
+        self.assertEqual(data["x11"]["autostart"][-1], "kantele-shell start")
+        shellkeys.setup("whiplash", autostart="off", backend="x11")
+        data = tomllib.loads(self.path.read_text())
+        self.assertNotIn("kantele-shell start", data["x11"]["autostart"])
+        self.assertIn("kantele-shell start", data["autostart"])
+
+    def test_an_atg_line_counts_as_starting_a_shell_on_x11(self):
+        s = wl.Config(self.path).read()
+        s.backend_autostart["x11"].append("QT_QPA_PLATFORM=xcb qs -n -d -c atg")
+        wl.Config(self.path).save(s)
+        self.assertEqual(shellctl.autostart_shells("whiplash", "x11"),
+                         ["QT_QPA_PLATFORM=xcb qs -n -d -c atg"])
+        self.assertEqual(shellctl.autostart_shells("whiplash"), [])
+        shellctl.drop_autostart_shells("whiplash", "x11")
+        self.assertEqual(tomllib.loads(self.path.read_text())["x11"]["autostart"],
+                         ["dunst", "amorphis-idle"])
+
+
+@unittest.skipIf(QApplication is None, "needs PyQt6")
+class WhiplashShellTabTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.config_home = Path(tmp.name)
+        for patcher in (
+            mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.config_home),
+                                         "XDG_CURRENT_DESKTOP": "sway"}),
+            mock.patch.object(shellctl, "status", return_value={}),
+            mock.patch.object(shellctl, "installed", return_value=True),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        (self.config_home / "whiplash").mkdir()
+        self.path = self.config_home / "whiplash" / "config.toml"
+        self.path.write_text(PROFILES)
+        self.app = QApplication.instance() or QApplication([])
+
+    def page(self):
+        page = whiplash_ui.WhiplashPage(self.path)
+        self.addCleanup(self.app.processEvents)
+        self.addCleanup(page.deleteLater)
+        return page, dict(page.parts)["Shell"]
+
+    def test_one_section_per_backend(self):
+        _page, tab = self.page()
+        wayland = [tab.wayland.combo.itemData(i) for i in range(tab.wayland.combo.count())]
+        x11 = [tab.x11.combo.itemData(i) for i in range(tab.x11.combo.count())]
+        self.assertEqual(x11, ["", "atg"])
+        self.assertNotIn("atg", wayland)
+        self.assertIn("utumno", wayland)
+        self.assertIn("next login", tab.x11.state.text())
+
+    def test_the_x11_choice_goes_to_the_x11_list(self):
+        _page, tab = self.page()
+        tab.x11.combo.setCurrentIndex(tab.x11.combo.findData("atg"))
+        tab.x11.use_next_login()
+        self.assertEqual(shellctl.chosen("whiplash", "x11"), "atg")
+        self.assertEqual(shellctl.chosen("whiplash"), "")
+        data = tomllib.loads(self.path.read_text())
+        self.assertEqual(data["x11"]["autostart"][-1], "kantele-shell start")
+
+    def test_rewrites_the_x11_keys_after_showing_them(self):
+        _page, tab = self.page()
+        self.assertTrue(tab.keys_button.isEnabled())
+        with mock.patch.object(whiplash_ui.QMessageBox, "exec",
+                               lambda box: box.defaultButton().click()):
+            tab.rewrite_x11_keys()
+        keys = tomllib.loads(self.path.read_text())["x11"]["keybinds"]
+        self.assertEqual(keys["Super+t"], "spawn kantele-shell lock")
+        self.assertIs(keys["Super+a"], False)
+        self.assertFalse(dict(_page.parts)["Shell"].keys_button.isEnabled())
+
+    def test_cancel_leaves_the_file_alone(self):
+        _page, tab = self.page()
+        with mock.patch.object(whiplash_ui.QMessageBox, "exec", lambda box: None):
+            tab.rewrite_x11_keys()
+        self.assertEqual(self.path.read_text(), PROFILES)
+
+
 class WhiplashShellKeysTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()

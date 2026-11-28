@@ -16,12 +16,13 @@ This module must not import Qt: it runs without a display.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import sys
 from pathlib import Path
 
-from .backends import detect_running, spitfire, wasp, whiplash
+from .backends import detect_running, pwm, spitfire, wasp, whiplash
 from .backends.luautil import LuaError
 
 # key -> kantele-shell verb. Free in the example config.lua of both compositors.
@@ -124,15 +125,35 @@ def apply(wm: str) -> list[str]:
     return messages
 
 
-def setup(wm: str, autostart: str | None = None, bar: str | None = None) -> list[str]:
+def setup(wm: str, autostart: str | None = None, bar: str | None = None,
+          backend: str = "wayland") -> list[str]:
     """Changes what `kantele-shell` needs from kantele.lua: whether it adds
     `kantele-shell start` to the autostart, and the built-in bar ("on", "off", or
-    "default" for config.lua's value)."""
-    backend = BACKENDS[wm][0]
+    "default" for config.lua's value). `backend` is the display server the shell
+    runs on: "x11" for whiplash's X11 session and for wmd77."""
+    profile = backend
+    if wm == "wmd77" and profile == "x11":
+        return _setup_wmd77(bar)
+    module = BACKENDS.get(wm, (None,))[0]
+    if module is None or (profile == "x11" and not getattr(module, "X11", False)):
+        raise LuaError(f"Setting up an X11 shell for {wm} isn't supported yet.")
+    backend = module
     config = backend.Config()
     settings = config.read()
     if autostart is not None:
-        settings.shell_autostart = autostart == "on"
+        if hasattr(settings, "set_shell_autostart"):
+            # Is a shell chosen for the other backend? Then turning this one off
+            # must leave `kantele-shell start` where that one runs it.
+            other = "wayland" if profile == "x11" else "x11"
+            suffix = "-x11" if other == "x11" else ""
+            choice = kantele_dir() / f"shell-{wm}{suffix}"
+            try:
+                other_wants_it = bool(choice.read_text().strip())
+            except OSError:
+                other_wants_it = False
+            settings.set_shell_autostart(autostart == "on", profile, other_wants_it)
+        else:
+            settings.shell_autostart = autostart == "on"
     if bar is not None and getattr(backend, "HAS_BAR", True):
         path = ("bar", "enable")
         settings.values[path] = settings.base[path] if bar == "default" else bar == "on"
@@ -143,17 +164,72 @@ def setup(wm: str, autostart: str | None = None, bar: str | None = None) -> list
     return [backend.reload_running()]
 
 
+# ATG's bar: 40 px plus an 8 px top margin.
+ATG_RESERVE_TOP = 48
+_WMD77_BAR_KEYS = ("enable", "reserve_top")
+
+
+def _setup_wmd77(bar: str | None) -> list[str]:
+    """wmd77 starts its shell from startup.sh, which is the user's, so only the
+    bar is Kantele's to change: off, with room kept for ATG, while ATG is the
+    shell; back to what config.toml had before ("default"); or on, when no shell
+    could start. wmd77 restarts to apply it (since 0.5.4 without running
+    startup.sh again)."""
+    if bar is None:
+        return []
+    config = pwm.Config(flavor=pwm.WMD77)
+    settings = config.read()
+    before = dict(settings.bar)
+    saved = kantele_dir() / "wmd77-bar.previous"
+    previous: dict[str, object] = {}
+    try:
+        previous = json.loads(saved.read_text())
+    except (OSError, ValueError):
+        pass
+
+    def restore() -> None:
+        for key in _WMD77_BAR_KEYS:
+            if previous.get(key) is None:
+                settings.bar.pop(key, None)
+            else:
+                settings.bar[key] = previous[key]
+
+    if bar == "off":
+        if not saved.exists():
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            saved.write_text(json.dumps({k: settings.bar.get(k) for k in _WMD77_BAR_KEYS}) + "\n")
+        settings.bar["enable"] = False
+        settings.bar["reserve_top"] = ATG_RESERVE_TOP
+    elif bar == "default":
+        restore()
+        saved.unlink(missing_ok=True)
+    else:  # "on": no shell, so the built-in bar with the room it had before
+        restore()
+        settings.bar["enable"] = True
+    if settings.bar == before:
+        # Nothing to apply: don't restart wmd77 (which, before 0.5.4, would also
+        # run startup.sh again).
+        return ["The bar already is as the shell needs it."]
+    errors = pwm.validate(settings, pwm.WMD77)
+    if errors:
+        raise LuaError("\n".join(errors))
+    config.apply(settings)
+    config.save()
+    return [pwm.reload_running(pwm.WMD77)]
+
+
 def setup_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="kantele shell-setup",
         description="Change the autostart entry and built-in bar for kantele-shell.",
     )
-    parser.add_argument("--wm", choices=sorted(BACKENDS), required=True)
+    parser.add_argument("--wm", choices=sorted({*BACKENDS, "wmd77"}), required=True)
+    parser.add_argument("--backend", choices=("wayland", "x11"), default="wayland")
     parser.add_argument("--autostart", choices=("on", "off"))
     parser.add_argument("--bar", choices=("on", "off", "default"))
     args = parser.parse_args(argv)
     try:
-        messages = setup(args.wm, args.autostart, args.bar)
+        messages = setup(args.wm, args.autostart, args.bar, args.backend)
     except (LuaError, OSError) as error:
         print(f"kantele shell-setup: {error}", file=sys.stderr)
         return 1

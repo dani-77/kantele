@@ -272,10 +272,12 @@ class ShellTab(QWidget):
     back if it isn't confirmed, belong to kantele-shell, so they survive this
     window closing."""
 
-    def __init__(self, page: "LuaPage"):
+    def __init__(self, page: "LuaPage", profile: str = "wayland", wm: str | None = None):
         super().__init__()
         self.page = page
-        self.wm = page.backend.NAME
+        # "wayland" or "x11": whiplash has one tab per backend, wmd77 only X11.
+        self.profile = profile
+        self.wm = wm or page.backend.NAME
         self.process: QProcess | None = None
         lay = QVBoxLayout(self)
 
@@ -308,10 +310,22 @@ class ShellTab(QWidget):
         row.addStretch()
         lay.addLayout(row)
 
-        lay.addWidget(_note(
-            "With nothing chosen here, the compositor keeps what it came with. Applying "
-            "stops the current shell and turns the built-in bar off. If you don't confirm "
-            f"within {shellctl.KEEP_SECONDS} seconds, the previous shell comes back."))
+        if profile == "x11" and self.wm == "wmd77":
+            note = ("ATG is the X11 shell. With nothing chosen here, wmd77 keeps its own bar. "
+                    "Applying starts ATG, turns wmd77's bar off and keeps room for ATG at the "
+                    "top; wmd77 restarts to apply that. If you don't confirm within "
+                    f"{shellctl.KEEP_SECONDS} seconds, the previous shell comes back.")
+        elif profile == "x11":
+            note = ("ATG is the X11 shell, and it reserves its own room at the top. With "
+                    f"nothing chosen here, {self.wm} keeps what it came with. If you don't "
+                    f"confirm within {shellctl.KEEP_SECONDS} seconds, the previous shell "
+                    "comes back.")
+        else:
+            note = ("With nothing chosen here, the compositor keeps what it came with. "
+                    "Applying stops the current shell and turns the built-in bar off. If you "
+                    f"don't confirm within {shellctl.KEEP_SECONDS} seconds, the previous shell "
+                    "comes back.")
+        lay.addWidget(_note(note))
         lay.addStretch()
 
     # The tab keeps no settings of its own in kantele.lua's editable values.
@@ -325,7 +339,7 @@ class ShellTab(QWidget):
         self.combo.blockSignals(True)
         self.combo.clear()
         self.combo.addItem(f"What {self.wm} came with", "")
-        for name, label in shellctl.SHELLS.items():
+        for name, label in shellctl.shells_for(self.profile).items():
             ok = shellctl.installed(name)
             self.combo.addItem(label if ok else f"{label} (not installed)", name)
         self.combo.setCurrentIndex(max(0, self.combo.findData(selected)))
@@ -336,12 +350,17 @@ class ShellTab(QWidget):
         missing = bool(shell) and not shellctl.installed(shell)
         self.install_button.setVisible(missing)
         self.next_button.setEnabled(not missing)
-        self.apply_button.setEnabled(not missing and shellctl.is_running_session(self.wm))
+        self.apply_button.setEnabled(not missing and self.here)
+
+    @property
+    def here(self) -> bool:
+        """Kantele runs inside this tab's session (window manager and backend)."""
+        return shellctl.is_running_session(self.wm, self.profile)
 
     def refresh(self) -> None:
-        here = shellctl.is_running_session(self.wm)
+        here = self.here
         status = shellctl.status() if here else {}
-        chosen = shellctl.chosen(self.wm)
+        chosen = shellctl.chosen(self.wm, self.profile)
         self._fill_combo(chosen)
 
         running = status.get("running", "")
@@ -350,7 +369,8 @@ class ShellTab(QWidget):
             # A leftover quickshell-d77 is still reported by name.
             parts.insert(0, f"Running now: {shellctl.SHELLS.get(running, running or 'none')}.")
         else:
-            parts.append(f"You're not in a {self.wm} session, so this takes effect at its "
+            session = f"{self.wm} X11" if self.profile == "x11" and self.wm != "wmd77" else self.wm
+            parts.append(f"You're not in a {session} session, so this takes effect at its "
                          "next login.")
         self.state.setText(" ".join(parts))
 
@@ -359,16 +379,25 @@ class ShellTab(QWidget):
         self.warning.setText(self.config_warning() if self._config_starts_a_shell() else "")
 
     def config_warning(self) -> str:
+        if self.wm == "wmd77":
+            return (f"{shellctl.wmd77_startup_script()} starts a shell by itself, so that "
+                    "shell runs whatever is chosen here. For this choice to decide, start "
+                    "it there with `kantele-shell start` instead.")
         return (f"{self.page.cfg.path.name} also starts a shell by itself. Remove that "
                 "entry, or it will run instead of the one chosen here.")
 
     def _config_starts_a_shell(self) -> bool:
+        if self.wm == "wmd77":
+            return shellctl.startup_script_starts_a_shell(shellctl.wmd77_startup_script())
+        if getattr(getattr(self.page, "backend", None), "AUTOSTART_IN_CONFIG", False):
+            # whiplash: only the list this backend runs counts.
+            return bool(shellctl.autostart_shells(self.wm, self.profile))
         return shellctl.config_starts_a_shell(self.page.cfg.path)
 
     def _drop_autostart_shells(self) -> bool:
         """Where Kantele edits the autostart list (whiplash), offers to take out an
         entry that starts another shell. False if the user cancelled."""
-        found = shellctl.autostart_shells(self.wm)
+        found = shellctl.autostart_shells(self.wm, self.profile)
         if not found:
             return True
         shell = self.selected()
@@ -390,7 +419,7 @@ class ShellTab(QWidget):
             if not self._saved_first():
                 return False
             try:
-                shellctl.drop_autostart_shells(self.wm)
+                shellctl.drop_autostart_shells(self.wm, self.profile)
             except (LuaError, OSError) as e:
                 QMessageBox.critical(self, "Not saved", str(e))
                 return False
@@ -432,7 +461,7 @@ class ShellTab(QWidget):
         if not self._saved_first():
             return
         try:
-            shellctl.choose(self.wm, shell)
+            shellctl.choose(self.wm, shell, self.profile)
         except (LuaError, OSError) as e:
             QMessageBox.critical(self, "Not saved", str(e))
         self.page.reload()
@@ -442,7 +471,7 @@ class ShellTab(QWidget):
         if not shell:
             self.use_next_login()
             return
-        if shellctl.autostart_shells(self.wm):
+        if shellctl.autostart_shells(self.wm, self.profile):
             # _drop_autostart_shells asks, naming the entries.
             if not self._drop_autostart_shells():
                 return
