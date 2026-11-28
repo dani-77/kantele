@@ -10,7 +10,7 @@
 >
 > Legend: `[ ]` to do · `[~]` done, to test · `[x]` done
 
-- **Current step:** phase 5 is on branches (whiplash `atg-from-config`, d77void `wmd77-kantele-shell`); next is phase 6, releasing in this order: Kantele, whiplash, then a d77void ISO. Phases 1-4 are done and tested by Daniel in Whiplash X11 and wmd77 (2026-11-28). For the tests, /usr/bin/kantele-shell is the branch's (the main one is kept as /usr/bin/kantele-shell.main-bak).
+- **Current step:** done. Released 2026-11-28: Kantele 0.6.0 and whiplash 0.4.1 (Void glibc and musl, AUR, d77-iso), and the d77void wmd77 variant starts the shell with `kantele-shell start` (main, for the next ISO).
 - **Last update:** 2026-11-28.
 
 ## Goal
@@ -169,7 +169,7 @@ on both backends, and most of `[x11.keybinds]` stops being needed.
    shell detection, the redundant-override report. Tests against a copy of
    Daniel's config.
 4. [x] GUI: Whiplash Shell tab with Wayland and X11 sections; wmd77 Shell tab.
-5. [~] Decided proposals outside Kantele (Whiplash, d77void):
+5. [x] Decided proposals outside Kantele (Whiplash, d77void):
    - whiplash branch `atg-from-config` (7938d3a): `whiplash-session` no longer
      adds ATG; the d77 X11 default and the example's `[x11]` list start it.
      Checked in Xvfb (no config, example, own list without ATG) and Kantele
@@ -177,7 +177,7 @@ on both backends, and most of `[x11.keybinds]` stops being needed.
    - d77void branch `wmd77-kantele-shell`: `startup.sh` runs
      `kantele-shell start` when Kantele is installed, ATG directly otherwise;
      the skel picks ATG. Only for an ISO built after this Kantele is released.
-6. [ ] Release and packaging (Void, AUR, d77-iso where Kantele is).
+6. [x] Release and packaging (Void, AUR, d77-iso where Kantele is).
 
 Tests follow the existing notes:
 - isolate `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME`;
