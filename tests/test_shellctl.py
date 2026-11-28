@@ -180,12 +180,13 @@ class ChooseTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             shellctl.choose("wmd77", "utumno", backend="x11")
 
-    def test_x11_setup_is_not_there_yet(self):
-        # Phase 3 (whiplash) and 4 (wmd77) of doc/x11-shells-plan.md.
+    def test_x11_setup_is_not_there_yet_for_wmd77(self):
+        # Phase 4 of doc/x11-shells-plan.md.
         from kantele import shellkeys
-        for wm in ("whiplash", "wmd77"):
-            with self.assertRaises(shellkeys.LuaError):
-                shellkeys.setup(wm, autostart="on", backend="x11")
+        with self.assertRaises(shellkeys.LuaError):
+            shellkeys.setup("wmd77", autostart="on", backend="x11")
+        with self.assertRaises(shellkeys.LuaError):
+            shellkeys.setup("wasp", autostart="on", backend="x11")
         self.assertEqual(shellkeys.setup_main(["--wm", "wmd77", "--backend", "x11",
                                                "--autostart", "on"]), 1)
 

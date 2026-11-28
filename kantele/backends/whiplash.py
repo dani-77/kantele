@@ -46,6 +46,17 @@ SHELL_START = "kantele-shell start"
 # The autostart list lives in config.toml, which Kantele edits, so the Shell tab
 # can take out an entry that starts another shell instead of only warning.
 AUTOSTART_IN_CONFIG = True
+# whiplash 0.4 also runs as an X11 window manager. [x11] and [wayland] can each
+# replace the shared autostart list and override single keybindings.
+X11 = True
+PROFILES = ("wayland", "x11")
+
+# [x11.keybinds] values that are ATG's own command for a kantele-shell verb.
+# kantele-shell reaches ATG on X11, so these can be written as the verb.
+_ATG_VERB_COMMANDS = (
+    (re.compile(r"^qsd77\s+-c\s+atg\s+(launcher|session|wallpaper)$"), None),
+    (re.compile(r"^amorphis\s+--backend\s+x11$"), "lock"),
+)
 
 LAYOUTS = ("tall", "wide", "full")
 MODS = {"alt": "Alt", "mod1": "Alt", "super": "Super", "logo": "Super", "win": "Super",
@@ -203,22 +214,90 @@ class Settings:
     # For `kantele shell-keys`, which compares against the compositor's own
     # keys; in whiplash every binding lives in the one file.
     base_binds: list[Bind] = field(default_factory=list)
+    # [wayland] / [x11]: an autostart list that replaces the shared one on that
+    # backend (None: the shared list runs there), and keybinding overrides
+    # ("combo" -> action text, or False to drop the binding; None: no table).
+    backend_autostart: dict[str, list[str] | None] = field(
+        default_factory=lambda: {p: None for p in PROFILES})
+    backend_binds: dict[str, dict[str, object] | None] = field(
+        default_factory=lambda: {p: None for p in PROFILES})
+
+    def autostart_for(self, backend: str) -> list[str] | None:
+        """What whiplash starts at login on `backend`: its own list, or the
+        shared one (None: whiplash's built-in autostart)."""
+        own = self.backend_autostart.get(backend)
+        return own if own is not None else self.autostart
+
+    def shell_autostart_on(self, backend: str = "wayland") -> bool:
+        return SHELL_START in (self.autostart_for(backend) or [])
+
+    def set_shell_autostart(self, on: bool, backend: str = "wayland",
+                            other_wants_it: bool = False) -> None:
+        """Adds or removes `kantele-shell start` where it runs on `backend`.
+        Removing it from the shared list would also take it from the other
+        backend, so when that one runs the shared list and still has a shell
+        chosen (`other_wants_it`), this backend gets a list of its own instead."""
+        own = self.backend_autostart.get(backend)
+        if own is not None:
+            self.backend_autostart[backend] = _with_shell_start(own, on)
+            return
+        shared = list(self.autostart or [])
+        other = next(p for p in PROFILES if p != backend)
+        if (not on and other_wants_it and SHELL_START in shared
+                and self.backend_autostart.get(other) is None):
+            self.backend_autostart[backend] = _with_shell_start(shared, False)
+        else:
+            self.autostart = _with_shell_start(shared, on)
 
     @property
     def shell_autostart(self) -> bool:
-        return SHELL_START in (self.autostart or [])
+        return self.shell_autostart_on("wayland")
 
     @shell_autostart.setter
     def shell_autostart(self, on: bool) -> None:
-        current = list(self.autostart or [])
-        if on and SHELL_START not in current:
-            current.append(SHELL_START)
-        elif not on:
-            current = [c for c in current if c != SHELL_START]
-        self.autostart = current
+        self.set_shell_autostart(on, "wayland")
 
     def effective_binds(self) -> list[Bind]:
         return list(self.binds) if self.binds is not None else [Bind(**vars(b)) for b in DEFAULT_BINDS]
+
+
+def _with_shell_start(entries: list[str], on: bool) -> list[str]:
+    entries = list(entries)
+    if on and SHELL_START not in entries:
+        entries.append(SHELL_START)
+    elif not on:
+        entries = [c for c in entries if c != SHELL_START]
+    return entries
+
+
+def shell_key_overrides(s: Settings, backend: str = "x11") -> list[tuple[str, str, str]]:
+    """The `backend` keybinding overrides that are ATG's own command for a
+    kantele-shell verb, as (combo, current action, kantele-shell action). Since
+    kantele-shell reaches ATG on X11, each can be written as the verb. The
+    System Monitor, the OSD keys, screenshots and `false` entries aren't verbs,
+    so they never show up here."""
+    found = []
+    for combo, value in (s.backend_binds.get(backend) or {}).items():
+        if not isinstance(value, str):
+            continue
+        action, arg = split_action(value)
+        if action != "spawn":
+            continue
+        for pattern, verb in _ATG_VERB_COMMANDS:
+            m = pattern.match(arg.strip())
+            if m:
+                found.append((combo, value, join_action("spawn", f"kantele-shell {verb or m.group(1)}")))
+                break
+    return found
+
+
+def replace_shell_key_overrides(s: Settings, backend: str = "x11") -> list[tuple[str, str, str]]:
+    """Rewrites what shell_key_overrides() finds; returns the changes."""
+    changes = shell_key_overrides(s, backend)
+    binds = s.backend_binds.get(backend)
+    for combo, _old, new in changes:
+        binds[combo] = new
+    return changes
 
 
 def config_path() -> Path:
@@ -319,6 +398,15 @@ class Config:
             for combo, value in d["keybinds"].items():
                 action, arg = split_action(str(value))
                 s.binds.append(Bind(str(combo), action, arg))
+        for profile in PROFILES:
+            table = d.get(profile)
+            if not isinstance(table, Table):
+                continue
+            if "autostart" in table:
+                s.backend_autostart[profile] = [str(c) for c in table["autostart"]]
+            if isinstance(table.get("keybinds"), Table):
+                s.backend_binds[profile] = {str(k): _plain(v)
+                                            for k, v in table["keybinds"].items()}
         return s
 
     # ── writing ──────────────────────────────────────────────────────────
@@ -362,6 +450,23 @@ class Config:
         if s.binds is not None:
             _set_flat(d, "keybinds", {b.combo: join_action(b.action, b.arg) for b in s.binds},
                       keep_empty=True)
+
+        for profile in PROFILES:
+            autostart = s.backend_autostart.get(profile)
+            binds = s.backend_binds.get(profile)
+            table = d.get(profile)
+            if not isinstance(table, Table):
+                if autostart is None and binds is None:
+                    continue
+                table = _table(d, profile)
+            if autostart is not None:
+                _set_list(table, "autostart", autostart)
+            elif "autostart" in table:
+                del table["autostart"]
+            if binds is not None:
+                _set_flat(table, "keybinds", binds, keep_empty=True)
+            elif "keybinds" in table:
+                del table["keybinds"]
 
     def save(self, s: Settings | None = None) -> Path | None:
         """Applies `s` (if given) and writes the file atomically. The first time
@@ -530,6 +635,27 @@ def validate(s: Settings) -> list[str]:
         problem = check_action(b.action, b.arg, s)
         if problem:
             errs.append(f"Key '{b.combo}': {problem}.")
+    for profile in PROFILES:
+        pcombos: set[str] = set()
+        for combo, value in (s.backend_binds.get(profile) or {}).items():
+            where = f"[{profile}.keybinds] '{combo}'"
+            problem = check_combo(combo)
+            if problem:
+                errs.append(f"[{profile}.keybinds] {problem}")
+                continue
+            norm = normalize_combo(combo)
+            if norm in pcombos:
+                errs.append(f"{where} is bound more than once.")
+            pcombos.add(norm)
+            if value is False:
+                continue  # false drops the binding on this backend
+            if not isinstance(value, str):
+                errs.append(f"{where}: an action or false.")
+                continue
+            action, arg = split_action(value)
+            problem = check_action(action, arg, s)
+            if problem:
+                errs.append(f"{where}: {problem}.")
     return errs
 
 

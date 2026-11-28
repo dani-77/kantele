@@ -62,7 +62,9 @@ def shells_for(backend: str) -> dict[str, str]:
 
 # How a config.lua would start one of the shells by itself, once comments are gone.
 _STARTS_SHELL = re.compile(
-    r"""qsd77["',\s]+run|\bqs["',\s]+-c\b|\bfabric-d77\b(?!-signal)|\bhelium-shell\b|\bfrost["',\s]+run\b""")
+    r"""qsd77["',\s]+run|\bqs["',\s]+-c\b|\bfabric-d77\b(?!-signal)|\bhelium-shell\b|\bfrost["',\s]+run\b"""
+    # ATG as whiplash-session and wmd77's startup.sh start it: qs -n -d -c atg
+    r"""|\bqs\b(?:\s+-\S+)*\s+(?:-c|--config)[\s=]atg\b""")
 
 
 def installed(shell: str) -> bool:
@@ -172,24 +174,38 @@ def config_starts_a_shell(path: Path) -> bool:
     return any(_STARTS_SHELL.search(line) for line in code)
 
 
-def autostart_shells(wm: str) -> list[str]:
-    """The autostart entries that start a shell by themselves, for a compositor
-    whose autostart list Kantele edits (whiplash's config.toml). Always empty for
-    the others: their config.lua is the user's, so Kantele only warns there."""
-    backend = BACKENDS[wm][0]
-    if not getattr(backend, "AUTOSTART_IN_CONFIG", False):
+def _autostart(settings, backend: str) -> list[str]:
+    if hasattr(settings, "autostart_for"):
+        return settings.autostart_for(backend) or []
+    return settings.autostart or []
+
+
+def autostart_shells(wm: str, backend: str = "wayland") -> list[str]:
+    """The autostart entries that start a shell by themselves on `backend`, for a
+    compositor whose autostart list Kantele edits (whiplash's config.toml).
+    Always empty for the others: their config.lua is the user's, so Kantele only
+    warns there."""
+    module = BACKENDS[wm][0]
+    if not getattr(module, "AUTOSTART_IN_CONFIG", False):
         return []
-    return [c for c in backend.Config().read().autostart or [] if _STARTS_SHELL.search(c)]
+    return [c for c in _autostart(module.Config().read(), backend) if _STARTS_SHELL.search(c)]
 
 
-def drop_autostart_shells(wm: str) -> list[str]:
-    """Takes out of the autostart the entries autostart_shells() finds, so they
-    don't start in place of the chosen shell. Returns what was taken out."""
-    found = autostart_shells(wm)
+def drop_autostart_shells(wm: str, backend: str = "wayland") -> list[str]:
+    """Takes out of `backend`'s autostart the entries autostart_shells() finds,
+    so they don't start in place of the chosen shell. Returns what was taken
+    out. In a list both backends share, such a line is wrong on one of them
+    anyway (Utumno under X11, ATG under Wayland), so it goes from there too."""
+    found = autostart_shells(wm, backend)
     if found:
-        backend = BACKENDS[wm][0]
-        config = backend.Config()
+        module = BACKENDS[wm][0]
+        config = module.Config()
         settings = config.read()
-        settings.autostart = [c for c in settings.autostart if c not in found]
+        kept = [c for c in _autostart(settings, backend) if c not in found]
+        own = getattr(settings, "backend_autostart", {}).get(backend)
+        if own is not None:
+            settings.backend_autostart[backend] = kept
+        else:
+            settings.autostart = kept
         config.save(settings)
     return found

@@ -129,14 +129,28 @@ def setup(wm: str, autostart: str | None = None, bar: str | None = None,
     """Changes what `kantele-shell` needs from kantele.lua: whether it adds
     `kantele-shell start` to the autostart, and the built-in bar ("on", "off", or
     "default" for config.lua's value). `backend` is the display server the shell
-    runs on; X11 (wmd77, whiplash's X11 session) isn't handled yet."""
-    if backend != "wayland" or wm not in BACKENDS:
+    runs on: "x11" for whiplash's X11 session (wmd77 isn't handled yet)."""
+    profile = backend
+    module = BACKENDS.get(wm, (None,))[0]
+    if module is None or (profile == "x11" and not getattr(module, "X11", False)):
         raise LuaError(f"Setting up an X11 shell for {wm} isn't supported yet.")
-    backend = BACKENDS[wm][0]
+    backend = module
     config = backend.Config()
     settings = config.read()
     if autostart is not None:
-        settings.shell_autostart = autostart == "on"
+        if hasattr(settings, "set_shell_autostart"):
+            # Is a shell chosen for the other backend? Then turning this one off
+            # must leave `kantele-shell start` where that one runs it.
+            other = "wayland" if profile == "x11" else "x11"
+            suffix = "-x11" if other == "x11" else ""
+            choice = kantele_dir() / f"shell-{wm}{suffix}"
+            try:
+                other_wants_it = bool(choice.read_text().strip())
+            except OSError:
+                other_wants_it = False
+            settings.set_shell_autostart(autostart == "on", profile, other_wants_it)
+        else:
+            settings.shell_autostart = autostart == "on"
     if bar is not None and getattr(backend, "HAS_BAR", True):
         path = ("bar", "enable")
         settings.values[path] = settings.base[path] if bar == "default" else bar == "on"

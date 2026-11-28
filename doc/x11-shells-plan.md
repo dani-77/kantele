@@ -10,7 +10,7 @@
 >
 > Legend: `[ ]` to do · `[~]` done, to test · `[x]` done
 
-- **Current step:** phase 3 (Whiplash backend). Phases 1 and 2 are done.
+- **Current step:** phase 4 (GUI). Phases 1-3 are done; phase 3 was checked against a copy of Daniel's config (byte-identical round trip, 6 X11 overrides found, the OSD/monitor/false ones kept).
 - **Last update:** 2026-11-28.
 
 ## Goal
@@ -165,7 +165,7 @@ on both backends, and most of `[x11.keybinds]` stops being needed.
 2. [x] `shellctl`: each shell's backend, ATG's install packages (Void:
    `quickshell qsd77 atg`; ATG isn't in the AUR yet), per-backend
    `chosen`/`choose`.
-3. [ ] Whiplash backend: `[x11]`/`[wayland]` tables, effective lists, per-list
+3. [x] Whiplash backend: `[x11]`/`[wayland]` tables, effective lists, per-list
    shell detection, the redundant-override report. Tests against a copy of
    Daniel's config.
 4. [ ] GUI: Whiplash Shell tab with Wayland and X11 sections; wmd77 Shell tab.
