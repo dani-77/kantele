@@ -202,6 +202,18 @@ class ChooseTest(unittest.TestCase):
         self.assertEqual(tomllib.loads(cfg.read_text())["bar"], {"height": 22, "reserve_top": 30})
         self.assertFalse((self.home / "kantele/wmd77-bar.previous").exists())
 
+    def test_wmd77_is_not_restarted_when_the_bar_is_already_right(self):
+        from kantele import shellkeys
+        from kantele.backends import pwm
+        (self.home / "wmd77").mkdir()
+        cfg = self.home / "wmd77/config.toml"
+        cfg.write_text("[bar]\nenable = false\n# ATG\nreserve_top = 48\n")
+        with mock.patch.object(pwm, "reload_running") as reload:
+            shellkeys.setup("wmd77", autostart="on", bar="off", backend="x11")
+            shellkeys.setup("wmd77", autostart="off", bar="default", backend="x11")
+        reload.assert_not_called()
+        self.assertEqual(cfg.read_text(), "[bar]\nenable = false\n# ATG\nreserve_top = 48\n")
+
     def test_wmd77_falls_back_to_its_own_bar(self):
         import tomllib
         from kantele import shellkeys

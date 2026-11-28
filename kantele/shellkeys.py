@@ -179,6 +179,7 @@ def _setup_wmd77(bar: str | None) -> list[str]:
         return []
     config = pwm.Config(flavor=pwm.WMD77)
     settings = config.read()
+    before = dict(settings.bar)
     saved = kantele_dir() / "wmd77-bar.previous"
     previous: dict[str, object] = {}
     try:
@@ -205,6 +206,10 @@ def _setup_wmd77(bar: str | None) -> list[str]:
     else:  # "on": no shell, so the built-in bar with the room it had before
         restore()
         settings.bar["enable"] = True
+    if settings.bar == before:
+        # Nothing to apply: don't restart wmd77 (which, before 0.5.4, would also
+        # run startup.sh again).
+        return ["The bar already is as the shell needs it."]
     errors = pwm.validate(settings, pwm.WMD77)
     if errors:
         raise LuaError("\n".join(errors))
