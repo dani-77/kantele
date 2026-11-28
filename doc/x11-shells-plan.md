@@ -10,7 +10,7 @@
 >
 > Legend: `[ ]` to do · `[~]` done, to test · `[x]` done
 
-- **Current step:** phase 5 (outside Kantele: whiplash-session, d77void skel). Phases 1-4 are done and tested by Daniel in Whiplash X11 and wmd77 (2026-11-28). For the test, /usr/bin/kantele-shell is the branch's (the main one is kept as /usr/bin/kantele-shell.main-bak).
+- **Current step:** phase 5 is on branches (whiplash `atg-from-config`, d77void `wmd77-kantele-shell`); next is phase 6, releasing in this order: Kantele, whiplash, then a d77void ISO. Phases 1-4 are done and tested by Daniel in Whiplash X11 and wmd77 (2026-11-28). For the tests, /usr/bin/kantele-shell is the branch's (the main one is kept as /usr/bin/kantele-shell.main-bak).
 - **Last update:** 2026-11-28.
 
 ## Goal
