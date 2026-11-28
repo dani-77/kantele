@@ -679,10 +679,24 @@ def _set_default_aware(table, key: str, value, default) -> None:
 
 
 def _set_list(table, key: str, values: list) -> None:
-    """Replaces a list's items in place, so a multi-line array stays multi-line."""
+    """Edits a list in place, so a multi-line array stays multi-line. Adding
+    items at the end or removing some only touches those items: the others keep
+    their indentation and comments."""
     current = table.get(key)
     if isinstance(current, Array):
-        if [_plain(v) for v in current] == list(values):
+        old = [_plain(v) for v in current]
+        new = list(values)
+        if old == new:
+            return
+        if new[:len(old)] == old:
+            for v in new[len(old):]:
+                current.append(v)
+            return
+        kept = [v for v in old if v in new]
+        if kept == new and len(set(old)) == len(old):
+            for i in reversed(range(len(old))):
+                if old[i] not in new:
+                    del current[i]
             return
         while len(current):
             del current[0]
