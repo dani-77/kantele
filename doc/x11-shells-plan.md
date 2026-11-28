@@ -10,7 +10,7 @@
 >
 > Legend: `[ ]` to do · `[~]` done, to test · `[x]` done
 
-- **Current step:** design agreed (see "Decisions"); implementation starts with phase 0.
+- **Current step:** design agreed (see "Decisions"); implementation of phase 1 in progress.
 - **Last update:** 2026-11-28.
 
 ## Goal
@@ -51,14 +51,10 @@ override single bindings.
 - `whiplash-session --backend x11` exports `XDG_SESSION_TYPE=x11`, unsets
   `WAYLAND_DISPLAY` and adds `-s 'QT_QPA_PLATFORM=xcb qs -n -d -c atg'` when ATG
   is installed.
-- ATG answers `launcher` (toggle), `session`, `wallpaper` and `osd` over IPC.
+- ATG answers `launcher`, `session` and `wallpaper` (each with `toggle`, which
+  qsd77 calls) and `osd` over IPC.
   Its system monitor is `monitor/d77-monitor <cpu|memory>`. It has no locker of
   its own, and its session menu uses Amorphis.
-- **Found while designing:** `qsd77 session` calls `session toggle`, but ATG's
-  `SessionMenu.qml` only has `open` and `close`. So
-  `"Super+x" = "spawn qsd77 -c atg session"` fails silently today, because
-  qsd77 exits 0 on IPC errors. Fix it in ATG by adding `toggle`, as
-  `WallpaperPicker.qml` has.
 
 ## Design
 
@@ -163,8 +159,6 @@ on both backends, and most of `[x11.keybinds]` stops being needed.
 
 ## Phases
 
-0. [ ] ATG: `toggle` on the `session` IPC target, so `qsd77 -c atg session`
-   works (release ATG 0.1.5).
 1. [ ] `kantele-shell`: X11 detection, wmd77, per-backend choice files, ATG
    (launch, health, verbs). Tests in `tests/test_kantele_shell.py` with a fake
    X11 environment.
