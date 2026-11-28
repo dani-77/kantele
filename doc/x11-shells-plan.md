@@ -10,7 +10,7 @@
 >
 > Legend: `[ ]` to do · `[~]` done, to test · `[x]` done
 
-- **Current step:** design agreed (see "Decisions"); phase 1 done (45 kantele-shell tests, 15 of them X11). Real wmd77 session (startx, 2026-11-28): `status` finds wmd77/x11/atg, and launcher, session and wallpaper open and close ATG's panels; dashboard warns. Still to test: `lock` in wmd77, everything in Whiplash X11.
+- **Current step:** design agreed (see "Decisions"); phase 1 done (45 kantele-shell tests, 15 of them X11). Real wmd77 session (startx, 2026-11-28): `status` finds wmd77/x11/atg, and launcher, session and wallpaper open and close ATG's panels; dashboard warns, and lock locks with Amorphis and unlocks (Daniel). Still to test: everything in Whiplash X11.
 - **Last update:** 2026-11-28.
 
 ## Goal
