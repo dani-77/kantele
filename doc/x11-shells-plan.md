@@ -10,7 +10,7 @@
 >
 > Legend: `[ ]` to do · `[~]` done, to test · `[x]` done
 
-- **Current step:** phase 4 done (154 tests), waiting for Daniel's real-session tests in Whiplash X11 and wmd77.
+- **Current step:** phase 5 (outside Kantele: whiplash-session, d77void skel). Phases 1-4 are done and tested by Daniel in Whiplash X11 and wmd77 (2026-11-28). For the test, /usr/bin/kantele-shell is the branch's (the main one is kept as /usr/bin/kantele-shell.main-bak).
 - **Last update:** 2026-11-28.
 
 ## Goal
@@ -168,7 +168,7 @@ on both backends, and most of `[x11.keybinds]` stops being needed.
 3. [x] Whiplash backend: `[x11]`/`[wayland]` tables, effective lists, per-list
    shell detection, the redundant-override report. Tests against a copy of
    Daniel's config.
-4. [~] GUI: Whiplash Shell tab with Wayland and X11 sections; wmd77 Shell tab.
+4. [x] GUI: Whiplash Shell tab with Wayland and X11 sections; wmd77 Shell tab.
 5. [ ] Decided proposals outside Kantele (Whiplash, d77void).
 6. [ ] Release and packaging (Void, AUR, d77-iso where Kantele is).
 
