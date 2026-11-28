@@ -98,8 +98,24 @@ class InstallCommandTest(unittest.TestCase):
             shellctl.install_command("fabric-d77")
 
     def test_every_shell_has_packages_on_both(self):
+        # ATG isn't in the AUR yet; every Wayland shell is on both.
         self.assertEqual(set(shellctl.VOID_PACKAGES), set(shellctl.SHELLS))
-        self.assertEqual(set(shellctl.ARCH_PACKAGES), set(shellctl.SHELLS))
+        self.assertEqual(set(shellctl.ARCH_PACKAGES), set(shellctl.shells_for("wayland")))
+
+    def test_atg_on_void_brings_quickshell_and_qsd77(self):
+        with self.which("xbps-install", "pkexec"):
+            self.assertEqual(shellctl.install_command("atg"),
+                             ["pkexec", "xbps-install", "-Sy", "quickshell", "qsd77", "atg"])
+
+    def test_atg_on_arch_says_it_is_not_packaged(self):
+        with self.which("pacman", "paru", "foot"), self.assertRaises(shellctl.CantInstall) as raised:
+            shellctl.install_command("atg")
+        self.assertIn("isn't packaged for Arch", str(raised.exception))
+
+    def test_every_shell_has_a_backend(self):
+        self.assertEqual(set(shellctl.BACKEND), set(shellctl.SHELLS))
+        self.assertEqual(list(shellctl.shells_for("x11")), ["atg"])
+        self.assertNotIn("atg", shellctl.shells_for("wayland"))
 
 
 @unittest.skipUnless(shutil.which(wasp.LUA), "needs lua5.4")
@@ -138,6 +154,40 @@ class ChooseTest(unittest.TestCase):
         shellctl.choose("wasp", "fabric-d77")
         self.assertEqual(shellctl.chosen("spitfire"), "utumno")
         self.assertEqual(shellctl.chosen("wasp"), "fabric-d77")
+
+    def test_x11_choice_is_kept_apart(self):
+        # whiplash has a Wayland and an X11 choice, in separate files, as
+        # kantele-shell keeps them.
+        x11 = shellctl.choice_file("whiplash", "x11")
+        self.assertEqual(x11.name, "shell-whiplash-x11")
+        self.assertEqual(shellctl.choice_file("whiplash").name, "shell-whiplash")
+        x11.parent.mkdir(parents=True, exist_ok=True)
+        x11.write_text("atg\n")
+        shellctl.choice_file("whiplash").write_text("utumno\n")
+        self.assertEqual(shellctl.chosen("whiplash", "x11"), "atg")
+        self.assertEqual(shellctl.chosen("whiplash"), "utumno")
+
+    def test_a_shell_only_counts_on_its_own_backend(self):
+        shellctl.choice_file("whiplash").parent.mkdir(parents=True, exist_ok=True)
+        shellctl.choice_file("whiplash").write_text("atg\n")
+        shellctl.choice_file("whiplash", "x11").write_text("utumno\n")
+        self.assertEqual(shellctl.chosen("whiplash"), "")
+        self.assertEqual(shellctl.chosen("whiplash", "x11"), "")
+
+    def test_choose_refuses_a_shell_of_the_other_backend(self):
+        with self.assertRaises(ValueError):
+            shellctl.choose("wasp", "atg")
+        with self.assertRaises(ValueError):
+            shellctl.choose("wmd77", "utumno", backend="x11")
+
+    def test_x11_setup_is_not_there_yet(self):
+        # Phase 3 (whiplash) and 4 (wmd77) of doc/x11-shells-plan.md.
+        from kantele import shellkeys
+        for wm in ("whiplash", "wmd77"):
+            with self.assertRaises(shellkeys.LuaError):
+                shellkeys.setup(wm, autostart="on", backend="x11")
+        self.assertEqual(shellkeys.setup_main(["--wm", "wmd77", "--backend", "x11",
+                                               "--autostart", "on"]), 1)
 
     def test_a_saved_quickshell_d77_choice_means_utumno(self):
         shellctl.choice_file("wasp").parent.mkdir(parents=True, exist_ok=True)

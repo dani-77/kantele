@@ -325,7 +325,7 @@ class ShellTab(QWidget):
         self.combo.blockSignals(True)
         self.combo.clear()
         self.combo.addItem(f"What {self.wm} came with", "")
-        for name, label in shellctl.SHELLS.items():
+        for name, label in shellctl.shells_for("wayland").items():
             ok = shellctl.installed(name)
             self.combo.addItem(label if ok else f"{label} (not installed)", name)
         self.combo.setCurrentIndex(max(0, self.combo.findData(selected)))

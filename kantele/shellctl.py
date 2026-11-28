@@ -17,7 +17,14 @@ SHELLS = {
     "fabric-d77": "fabric-d77",
     "helium-d77": "helium-d77",
     "frost-d77": "Frost",
+    "atg": "ATG",
 }
+# The display server each shell runs on. Wayland compositors (wasp, spitfire,
+# whiplash) use the Wayland shells; X11 window managers (wmd77, whiplash's X11
+# backend) use ATG.
+BACKEND = {"utumno": "wayland", "fabric-d77": "wayland", "helium-d77": "wayland",
+           "frost-d77": "wayland", "atg": "x11"}
+BACKENDS_ORDER = ("wayland", "x11")
 KEEP_SECONDS = 15
 
 # What to install for each shell. On Void the shell packages leave quickshell out
@@ -27,7 +34,9 @@ VOID_PACKAGES = {
     "fabric-d77": ["fabric-d77"],
     "helium-d77": ["helium-d77"],
     "frost-d77": ["frost-d77"],
+    "atg": ["quickshell", "qsd77", "atg"],
 }
+# ATG isn't in the AUR yet, so Arch has no packages for it.
 ARCH_PACKAGES = {
     "utumno": ["qsd77", "utumno"],
     "fabric-d77": ["fabric-d77"],
@@ -46,6 +55,11 @@ TERMINALS = {"foot": ["foot"], "kitty": ["kitty"], "alacritty": ["alacritty", "-
 class CantInstall(Exception):
     """Why this system can't install a shell, in words for the user."""
 
+
+def shells_for(backend: str) -> dict[str, str]:
+    """SHELLS, only those that run on `backend` ("wayland" or "x11")."""
+    return {name: label for name, label in SHELLS.items() if BACKEND[name] == backend}
+
 # How a config.lua would start one of the shells by itself, once comments are gone.
 _STARTS_SHELL = re.compile(
     r"""qsd77["',\s]+run|\bqs["',\s]+-c\b|\bfabric-d77\b(?!-signal)|\bhelium-shell\b|\bfrost["',\s]+run\b""")
@@ -60,6 +74,9 @@ def installed(shell: str) -> bool:
         return bool(shutil.which("helium-shell") and shutil.which("helium-osd"))
     if shell == "frost-d77":
         return bool(shutil.which("frost"))
+    if shell == "atg":
+        return (Path("/usr/share/quickshell/atg/shell.qml").is_file()
+                and bool(shutil.which("qs") and shutil.which("qsd77")))
     return False
 
 
@@ -71,6 +88,8 @@ def install_command(shell: str) -> list[str]:
             raise CantInstall("Installing needs pkexec (polkit).")
         return ["pkexec", "xbps-install", "-Sy", *VOID_PACKAGES[shell]]
     if shutil.which("pacman"):
+        if shell not in ARCH_PACKAGES:
+            raise CantInstall(f"{SHELLS[shell]} isn't packaged for Arch yet.")
         helper = next((h for h in AUR_HELPERS if shutil.which(h)), None)
         if not helper:
             raise CantInstall("These packages are in the AUR, which needs paru or yay. "
@@ -93,29 +112,35 @@ def command() -> str:
     return str(Path(__file__).resolve().parent.parent / "kantele-shell")
 
 
-def choice_file(wm: str) -> Path:
-    return kantele_dir() / f"shell-{wm}"
+def choice_file(wm: str, backend: str = "wayland") -> Path:
+    """Where kantele-shell keeps the choice: shell-<wm> for Wayland and
+    shell-<wm>-x11 for X11, so whiplash's two backends never share one."""
+    suffix = "-x11" if backend == "x11" else ""
+    return kantele_dir() / f"shell-{wm}{suffix}"
 
 
-def chosen(wm: str) -> str:
-    """The shell chosen for `wm`, or "" for whatever the compositor came with."""
+def chosen(wm: str, backend: str = "wayland") -> str:
+    """The shell chosen for `wm` on `backend`, or "" for whatever it came with."""
     try:
-        name = choice_file(wm).read_text().strip()
+        name = choice_file(wm, backend).read_text().strip()
     except OSError:
         return ""
     name = RENAMED.get(name, name)
-    return name if name in SHELLS else ""
+    return name if BACKEND.get(name) == backend else ""
 
 
-def choose(wm: str, shell: str) -> list[str]:
+def choose(wm: str, shell: str, backend: str = "wayland") -> list[str]:
     """Makes `shell` start with `wm` from the next login, without touching what's
     running. An empty name goes back to what the compositor came with."""
+    if shell and BACKEND.get(shell) != backend:
+        raise ValueError(f"{shell} doesn't run on {backend}")
+    path = choice_file(wm, backend)
     if shell:
-        choice_file(wm).parent.mkdir(parents=True, exist_ok=True)
-        choice_file(wm).write_text(shell + "\n")
-        return setup(wm, autostart="on", bar="off")
-    choice_file(wm).unlink(missing_ok=True)
-    return setup(wm, autostart="off", bar="default")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(shell + "\n")
+        return setup(wm, autostart="on", bar="off", backend=backend)
+    path.unlink(missing_ok=True)
+    return setup(wm, autostart="off", bar="default", backend=backend)
 
 
 def is_running_session(wm: str) -> bool:

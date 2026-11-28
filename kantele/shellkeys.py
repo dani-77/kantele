@@ -124,10 +124,14 @@ def apply(wm: str) -> list[str]:
     return messages
 
 
-def setup(wm: str, autostart: str | None = None, bar: str | None = None) -> list[str]:
+def setup(wm: str, autostart: str | None = None, bar: str | None = None,
+          backend: str = "wayland") -> list[str]:
     """Changes what `kantele-shell` needs from kantele.lua: whether it adds
     `kantele-shell start` to the autostart, and the built-in bar ("on", "off", or
-    "default" for config.lua's value)."""
+    "default" for config.lua's value). `backend` is the display server the shell
+    runs on; X11 (wmd77, whiplash's X11 session) isn't handled yet."""
+    if backend != "wayland" or wm not in BACKENDS:
+        raise LuaError(f"Setting up an X11 shell for {wm} isn't supported yet.")
     backend = BACKENDS[wm][0]
     config = backend.Config()
     settings = config.read()
@@ -148,12 +152,13 @@ def setup_main(argv: list[str]) -> int:
         prog="kantele shell-setup",
         description="Change the autostart entry and built-in bar for kantele-shell.",
     )
-    parser.add_argument("--wm", choices=sorted(BACKENDS), required=True)
+    parser.add_argument("--wm", choices=sorted({*BACKENDS, "wmd77"}), required=True)
+    parser.add_argument("--backend", choices=("wayland", "x11"), default="wayland")
     parser.add_argument("--autostart", choices=("on", "off"))
     parser.add_argument("--bar", choices=("on", "off", "default"))
     args = parser.parse_args(argv)
     try:
-        messages = setup(args.wm, args.autostart, args.bar)
+        messages = setup(args.wm, args.autostart, args.bar, args.backend)
     except (LuaError, OSError) as error:
         print(f"kantele shell-setup: {error}", file=sys.stderr)
         return 1
