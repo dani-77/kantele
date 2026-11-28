@@ -10,7 +10,7 @@
 >
 > Legend: `[ ]` to do · `[~]` done, to test · `[x]` done
 
-- **Current step:** design agreed (see "Decisions"); implementation of phase 1 in progress.
+- **Current step:** design agreed (see "Decisions"); phase 1 done (45 kantele-shell tests, 15 of them X11); waiting for a real-session test in wmd77 and Whiplash X11.
 - **Last update:** 2026-11-28.
 
 ## Goal
@@ -159,7 +159,7 @@ on both backends, and most of `[x11.keybinds]` stops being needed.
 
 ## Phases
 
-1. [ ] `kantele-shell`: X11 detection, wmd77, per-backend choice files, ATG
+1. [~] `kantele-shell`: X11 detection, wmd77, per-backend choice files, ATG
    (launch, health, verbs). Tests in `tests/test_kantele_shell.py` with a fake
    X11 environment.
 2. [ ] `shellctl`: each shell's backend, ATG's install packages (Void:
