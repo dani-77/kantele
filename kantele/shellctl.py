@@ -145,8 +145,14 @@ def choose(wm: str, shell: str, backend: str = "wayland") -> list[str]:
     return setup(wm, autostart="off", bar="default", backend=backend)
 
 
-def is_running_session(wm: str) -> bool:
-    return os.environ.get("XDG_CURRENT_DESKTOP") == wm
+def is_running_session(wm: str, backend: str = "wayland") -> bool:
+    """True when Kantele runs inside a `wm` session on `backend`. X11 asks
+    kantele-shell: wmd77 started by startx sets no XDG_CURRENT_DESKTOP."""
+    if backend == "wayland":
+        return (os.environ.get("XDG_CURRENT_DESKTOP") == wm
+                and os.environ.get("XDG_SESSION_TYPE") != "x11")
+    st = status()
+    return st.get("compositor") == wm and st.get("session") == "x11"
 
 
 def status() -> dict[str, str]:
@@ -180,13 +186,35 @@ def _autostart(settings, backend: str) -> list[str]:
     return settings.autostart or []
 
 
+def wmd77_startup_script() -> Path:
+    """The startup script wmd77 runs, from its config.toml."""
+    from .backends import pwm
+    settings = pwm.Config(flavor=pwm.WMD77).read()
+    script = settings.apps.get("startup_script") or pwm.WMD77.apps["startup_script"]
+    return Path(os.path.expanduser(str(script)))
+
+
+def startup_script_starts_a_shell(path: Path) -> bool:
+    """True if a startup script starts a shell by itself, instead of through
+    `kantele-shell start` (which may fall back to starting ATG itself, as the
+    d77void one does: that's fine)."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    code = [line.split("#", 1)[0] for line in text.splitlines()]
+    if any("kantele-shell start" in line for line in code):
+        return False
+    return any(_STARTS_SHELL.search(line) for line in code)
+
+
 def autostart_shells(wm: str, backend: str = "wayland") -> list[str]:
     """The autostart entries that start a shell by themselves on `backend`, for a
     compositor whose autostart list Kantele edits (whiplash's config.toml).
     Always empty for the others: their config.lua is the user's, so Kantele only
     warns there."""
-    module = BACKENDS[wm][0]
-    if not getattr(module, "AUTOSTART_IN_CONFIG", False):
+    module = BACKENDS.get(wm, (None,))[0]
+    if module is None or not getattr(module, "AUTOSTART_IN_CONFIG", False):
         return []
     return [c for c in _autostart(module.Config().read(), backend) if _STARTS_SHELL.search(c)]
 

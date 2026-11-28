@@ -10,7 +10,7 @@
 >
 > Legend: `[ ]` to do · `[~]` done, to test · `[x]` done
 
-- **Current step:** phase 4 (GUI). Phases 1-3 are done; phase 3 was checked against a copy of Daniel's config (byte-identical round trip, 6 X11 overrides found, the OSD/monitor/false ones kept).
+- **Current step:** phase 4 done (154 tests), waiting for Daniel's real-session tests in Whiplash X11 and wmd77.
 - **Last update:** 2026-11-28.
 
 ## Goal
@@ -168,7 +168,7 @@ on both backends, and most of `[x11.keybinds]` stops being needed.
 3. [x] Whiplash backend: `[x11]`/`[wayland]` tables, effective lists, per-list
    shell detection, the redundant-override report. Tests against a copy of
    Daniel's config.
-4. [ ] GUI: Whiplash Shell tab with Wayland and X11 sections; wmd77 Shell tab.
+4. [~] GUI: Whiplash Shell tab with Wayland and X11 sections; wmd77 Shell tab.
 5. [ ] Decided proposals outside Kantele (Whiplash, d77void).
 6. [ ] Release and packaging (Void, AUR, d77-iso where Kantele is).
 

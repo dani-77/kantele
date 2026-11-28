@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont
 
 from ..backends import pwm
+from .luapage import ShellTab
 from .widgets import ColorButton, EditableTable, KeyCaptureDialog
 
 
@@ -545,6 +546,9 @@ class PwmPage(QWidget):
             ("Bar", BarTab() if fl.bar == "widgets" else Wmd77BarTab()),
             ("Keyboard", KeyboardTab(fl)), ("Keybindings", KeysTab(fl)),
         ]
+        if fl is pwm.WMD77:
+            # ATG as wmd77's shell, in place of its built-in bar (the Bar tab).
+            self.parts.append(("Shell", ShellTab(self, "x11", "wmd77")))
         for name, w in self.parts:
             self.tabs.addTab(w, name)
         lay.addWidget(self.tabs)

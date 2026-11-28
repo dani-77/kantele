@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMessageBox, QSpinBox, QTabWidget, QToolButton,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox, QTabWidget, QToolButton,
     QVBoxLayout, QWidget,
 )
 
@@ -444,6 +444,89 @@ class KeysTab(QWidget):
         s.binds = rows if self.from_file or rows != self.loaded else None
 
 
+class WhiplashShellTab(QWidget):
+    """whiplash 0.4 runs on Wayland and on X11: one shell choice for each, side
+    by side. The X11 one is ATG."""
+
+    def __init__(self, page: "WhiplashPage"):
+        super().__init__()
+        self.page = page
+        lay = QVBoxLayout(self)
+        self.wayland = ShellTab(page, "wayland")
+        self.x11 = ShellTab(page, "x11")
+        for title, tab in (("Wayland", self.wayland), ("X11 (Whiplash · X11 login)", self.x11)):
+            box = QGroupBox(title)
+            QVBoxLayout(box).addWidget(tab)
+            lay.addWidget(box)
+
+        keys = QHBoxLayout()
+        self.keys_note = QLabel()
+        self.keys_note.setWordWrap(True)
+        keys.addWidget(self.keys_note, 1)
+        self.keys_button = QPushButton("Use kantele-shell keys on X11…")
+        self.keys_button.clicked.connect(self.rewrite_x11_keys)
+        keys.addWidget(self.keys_button)
+        self.x11.layout().insertLayout(self.x11.layout().count() - 1, keys)
+
+    # The warning and the combo of the Wayland part, as the single tab had them.
+    @property
+    def warning(self) -> QLabel:
+        return self.wayland.warning
+
+    @property
+    def combo(self):
+        return self.wayland.combo
+
+    def use_next_login(self) -> None:
+        self.wayland.use_next_login()
+
+    def load(self, s: wl.Settings) -> None:
+        self.wayland.load(s)
+        self.x11.load(s)
+        found = wl.shell_key_overrides(s)
+        self.keys_button.setEnabled(bool(found))
+        self.keys_note.setText(
+            f"{len(found)} [x11.keybinds] entries run an ATG command that a "
+            "kantele-shell key already covers." if found else
+            "The X11 shell keys go through kantele-shell.")
+
+    def store(self, _s: wl.Settings) -> None:
+        pass
+
+    def rewrite_x11_keys(self) -> None:
+        """Rewrites [x11.keybinds] entries such as `spawn qsd77 -c atg launcher`
+        as the kantele-shell verb, after showing the list."""
+        s = self.page.cfg.read()
+        found = wl.shell_key_overrides(s)
+        if not found:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Use kantele-shell keys on X11")
+        box.setText("These [x11.keybinds] entries will become kantele-shell keys, which "
+                    "reach ATG on X11:\n\n"
+                    + "\n".join(f"• {combo}: {old} → {new}" for combo, old, new in found)
+                    + "\n\nThe System Monitor, the volume and brightness keys, "
+                    "screenshots and keys set to false stay as they are.")
+        ok = box.addButton("Rewrite", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(ok)
+        box.exec()
+        if box.clickedButton() is not ok:
+            return
+        # Save the other tabs first: this edits config.toml.
+        if self.page.save(False) is None:
+            return
+        config = wl.Config(self.page.cfg.path)
+        s = config.read()
+        wl.replace_shell_key_overrides(s)
+        errs = wl.validate(s)
+        if errs:
+            QMessageBox.warning(self, "Not saved", "\n".join(errs))
+            return
+        config.save(s)
+        self.page.reload()
+
+
 class WhiplashPage(QWidget):
     backend = wl
     title = "whiplash"
@@ -461,7 +544,7 @@ class WhiplashPage(QWidget):
         self.parts = [
             ("Windows", self.windows), ("Keyboard", KeyboardTab()), ("Touchpad", TouchpadTab()),
             ("Rules", RulesTab()), ("Scratchpads", ScratchpadsTab()), ("Gestures", GesturesTab()),
-            ("Monitors", OutputsTab()), ("Keybindings", KeysTab(self)), ("Shell", ShellTab(self)),
+            ("Monitors", OutputsTab()), ("Keybindings", KeysTab(self)), ("Shell", WhiplashShellTab(self)),
         ]
         for name, w in self.parts:
             self.tabs.addTab(w, name)

@@ -311,6 +311,67 @@ class WhiplashProfilesTest(unittest.TestCase):
                          ["dunst", "amorphis-idle"])
 
 
+@unittest.skipIf(QApplication is None, "needs PyQt6")
+class WhiplashShellTabTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.config_home = Path(tmp.name)
+        for patcher in (
+            mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.config_home),
+                                         "XDG_CURRENT_DESKTOP": "sway"}),
+            mock.patch.object(shellctl, "status", return_value={}),
+            mock.patch.object(shellctl, "installed", return_value=True),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        (self.config_home / "whiplash").mkdir()
+        self.path = self.config_home / "whiplash" / "config.toml"
+        self.path.write_text(PROFILES)
+        self.app = QApplication.instance() or QApplication([])
+
+    def page(self):
+        page = whiplash_ui.WhiplashPage(self.path)
+        self.addCleanup(self.app.processEvents)
+        self.addCleanup(page.deleteLater)
+        return page, dict(page.parts)["Shell"]
+
+    def test_one_section_per_backend(self):
+        _page, tab = self.page()
+        wayland = [tab.wayland.combo.itemData(i) for i in range(tab.wayland.combo.count())]
+        x11 = [tab.x11.combo.itemData(i) for i in range(tab.x11.combo.count())]
+        self.assertEqual(x11, ["", "atg"])
+        self.assertNotIn("atg", wayland)
+        self.assertIn("utumno", wayland)
+        self.assertIn("next login", tab.x11.state.text())
+
+    def test_the_x11_choice_goes_to_the_x11_list(self):
+        _page, tab = self.page()
+        tab.x11.combo.setCurrentIndex(tab.x11.combo.findData("atg"))
+        tab.x11.use_next_login()
+        self.assertEqual(shellctl.chosen("whiplash", "x11"), "atg")
+        self.assertEqual(shellctl.chosen("whiplash"), "")
+        data = tomllib.loads(self.path.read_text())
+        self.assertEqual(data["x11"]["autostart"][-1], "kantele-shell start")
+
+    def test_rewrites_the_x11_keys_after_showing_them(self):
+        _page, tab = self.page()
+        self.assertTrue(tab.keys_button.isEnabled())
+        with mock.patch.object(whiplash_ui.QMessageBox, "exec",
+                               lambda box: box.defaultButton().click()):
+            tab.rewrite_x11_keys()
+        keys = tomllib.loads(self.path.read_text())["x11"]["keybinds"]
+        self.assertEqual(keys["Super+t"], "spawn kantele-shell lock")
+        self.assertIs(keys["Super+a"], False)
+        self.assertFalse(dict(_page.parts)["Shell"].keys_button.isEnabled())
+
+    def test_cancel_leaves_the_file_alone(self):
+        _page, tab = self.page()
+        with mock.patch.object(whiplash_ui.QMessageBox, "exec", lambda box: None):
+            tab.rewrite_x11_keys()
+        self.assertEqual(self.path.read_text(), PROFILES)
+
+
 class WhiplashShellKeysTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
